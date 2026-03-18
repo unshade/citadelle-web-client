@@ -1,36 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Citadelle Frontend
 
-## Getting Started
+A sophisticated, Arctic-themed encrypted storage interface with premium ice-glass aesthetics.
 
-First, run the development server:
+## Design Philosophy
+
+**Cold, Secure, Premium**
+
+The interface evokes the feeling of a high-security vault carved from arctic ice:
+- Deep navy-blue backgrounds representing depth and security
+- Pale blue-white gradients with frost effects
+- Glass/ice textures with blur and translucency
+- Sharp, elegant typography with Playfair Display
+- Subtle frost particles floating upward
+
+## Visual Language
+
+### Color Palette
+- **Background**: `#0a1628` - Deep arctic night
+- **Surface**: `#0f1d32` - Ice depths
+- **Text**: `#e8f4f8` - Frost white
+- **Accent**: `#4a9eff` - Glacier blue
+- **Subtle**: `rgba(200, 220, 255, 0.x)` - Various frost opacities
+
+### Typography
+- **Title**: Playfair Display (serif) - Elegant, timeless, secure feeling
+- **Body**: Inter (sans-serif) - Clean, modern, highly readable
+- **Special**: All-caps tracking for labels and buttons
+
+### Effects
+- `.ice-glass` / `.ice-glass-strong` - Frosted glass panels
+- `.ice-input` - Input fields with ice depth
+- `.frost-text` - Gradient text from white to pale blue
+- `.arctic-bg` - Animated gradient background
+- `.ice-shimmer` - Horizontal shimmer effect
+- Frost particles with glow effects
+
+## Tech Stack
+
+- **Framework**: Next.js 15
+- **Styling**: Tailwind CSS 4 (CSS-first configuration)
+- **UI Components**: shadcn/ui
+- **Animations**: Framer Motion
+- **Icons**: Lucide React
+- **Fonts**: Google Fonts (Inter + Playfair Display)
+
+## Pages
+
+- `/auth` - Authentication interface with Sign In / Sign Up
+
+## Run Development
 
 ```bash
+cd frontend
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Build for Production
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+```
 
-## Learn More
+Static files output to `dist/`
 
-To learn more about Next.js, take a look at the following resources:
+## Key Features
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Glassmorphism 2.0**: Multi-layer ice effects with backdrop blur
+- **Premium Typography**: Playfair Display for impact, Inter for clarity  
+- **Atmospheric Depth**: Frost particles, ambient glows, gradient shifts
+- **Accessible**: High contrast text, clear visual hierarchy
+- **Responsive**: Works on all device sizes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## File Structure
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+app/
+├── auth/page.tsx      # Authentication page
+├── layout.tsx         # Root layout with fonts
+├── page.tsx           # Redirect to auth
+└── globals.css        # Arctic theme & utilities
+components/ui/         # shadcn components
+public/
+dist/                  # Build output
+```
