@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { authApi } from '@/lib/api';
 import { 
   generateEncryptedUserData, 
@@ -10,19 +10,36 @@ import {
   getStoredCredentials,
   clearCredentials,
   clearAuthToken,
+  setStoredUserId,
+  getStoredUserId,
+  clearStoredUserId,
+  isAuthenticated,
 } from '@/lib/crypto';
 
 interface UseAuthReturn {
   signUp: (password: string) => Promise<{ success: boolean; userId?: string; error?: string }>;
   signIn: (userId: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => void;
   isLoading: boolean;
   error: string | null;
   clearError: () => void;
+  hasStoredSession: boolean;
+  storedUserId: string | null;
 }
 
 export function useAuth(): UseAuthReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasStoredSession, setHasStoredSession] = useState(false);
+  const [storedUserId, setStoredUserIdState] = useState<string | null>(null);
+
+  // Check for stored session on mount
+  useEffect(() => {
+    if (isAuthenticated()) {
+      setHasStoredSession(true);
+      setStoredUserIdState(getStoredUserId());
+    }
+  }, []);
 
   const clearError = () => setError(null);
 
@@ -100,7 +117,12 @@ export function useAuth(): UseAuthReturn {
       // Step 5: Store JWT token
       setAuthToken(verifyResponse.data.token);
       
-      // Store credentials for session
+      // Store user ID for session restoration
+      setStoredUserId(userId);
+      setStoredUserIdState(userId);
+      setHasStoredSession(true);
+      
+      // Store credentials for session (in memory only)
       storeCredentials({
         userId,
         password,
@@ -126,8 +148,11 @@ export function useAuth(): UseAuthReturn {
   return {
     signUp,
     signIn,
+    logout,
     isLoading,
     error,
     clearError,
+    hasStoredSession,
+    storedUserId,
   };
 }

@@ -233,17 +233,176 @@ export function clearCredentials() {
   storedCredentials = null;
 }
 
-// Store token
+// Store token - keep in memory and localStorage for persistence across reloads
+const TOKEN_KEY = 'citadelle_auth_token';
 let authToken: string | null = null;
 
 export function setAuthToken(token: string) {
   authToken = token;
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(TOKEN_KEY, token);
+  }
 }
 
 export function getAuthToken(): string | null {
-  return authToken;
+  // Return memory token if available
+  if (authToken) {
+    return authToken;
+  }
+  // Fall back to localStorage
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(TOKEN_KEY);
+  }
+  return null;
 }
 
 export function clearAuthToken() {
   authToken = null;
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+}
+
+// Store user ID - for session restoration
+const USER_ID_KEY = 'citadelle_user_id';
+
+export function setStoredUserId(userId: string) {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(USER_ID_KEY, userId);
+  }
+}
+
+export function getStoredUserId(): string | null {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem(USER_ID_KEY);
+  }
+  return null;
+}
+
+export function clearStoredUserId() {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(USER_ID_KEY);
+  }
+}
+
+// Check if user is authenticated (has token)
+export function isAuthenticated(): boolean {
+  return getAuthToken() !== null;
+}
+
+// File encryption functions
+export interface EncryptedFile {
+  encryptedData: ArrayBuffer;
+  encryptedKey: string;  // base64
+  nonce: string;         // base64 IV
+  encryptedName: string; // base64
+}
+
+// Get master key from stored credentials
+async function getMasterKey(): Promise<CryptoKey | null> {
+  const credentials = getStoredCredentials();
+  if (!credentials) return null;
+
+  try {
+    const saltBuffer = base64ToArrayBuffer(credentials.salt);
+    const kek = await deriveKEK(credentials.password, new Uint8Array(saltBuffer));
+    
+    const masterKeyCombined = new Uint8Array(base64ToArrayBuffer(credentials.encryptedMasterKey));
+    const masterKeyIv = masterKeyCombined.slice(0, IV_LENGTH);
+    const masterKeyCiphertext = masterKeyCombined.slice(IV_LENGTH);
+    
+    const masterKeyBuffer = await decryptWithKey(masterKeyCiphertext.buffer, masterKeyIv, kek);
+    return await crypto.subtle.importKey(
+      'raw',
+      masterKeyBuffer,
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt', 'decrypt']
+    );
+  } catch (e) {
+    console.error('Failed to get master key:', e);
+    return null;
+  }
+}
+
+// Encrypt a file
+export async function encryptFile(file: File): Promise<EncryptedFile | null> {
+  const masterKey = await getMasterKey();
+  if (!masterKey) {
+    throw new Error('Not authenticated');
+  }
+
+  // Generate a new key for this file
+  const fileKey = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  );
+
+  // Encrypt the file content
+  const fileBuffer = await file.arrayBuffer();
+  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+  const encryptedData = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource },
+    fileKey,
+    fileBuffer
+  );
+
+  // Encrypt the file key with the master key
+  const rawFileKey = await crypto.subtle.exportKey('raw', fileKey);
+  const keyNonce = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+  const encryptedKey = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: keyNonce as BufferSource },
+    masterKey,
+    rawFileKey
+  );
+
+  // Encrypt the filename
+  const nameEncoder = new TextEncoder();
+  const nameBuffer = nameEncoder.encode(file.name);
+  const nameNonce = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+  const encryptedName = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nameNonce as BufferSource },
+    masterKey,
+    nameBuffer
+  );
+
+  // Combine key + nonce, name + nonce
+  const combinedKey = new Uint8Array(keyNonce.length + encryptedKey.byteLength);
+  combinedKey.set(keyNonce);
+  combinedKey.set(new Uint8Array(encryptedKey), keyNonce.length);
+
+  const combinedName = new Uint8Array(nameNonce.length + encryptedName.byteLength);
+  combinedName.set(nameNonce);
+  combinedName.set(new Uint8Array(encryptedName), nameNonce.length);
+
+  return {
+    encryptedData,
+    encryptedKey: arrayBufferToBase64(combinedKey.buffer),
+    nonce: arrayBufferToBase64(iv.buffer),
+    encryptedName: arrayBufferToBase64(combinedName.buffer),
+  };
+}
+
+// Encrypt a path string
+export async function encryptPath(path: string): Promise<string> {
+  const masterKey = await getMasterKey();
+  if (!masterKey) {
+    throw new Error('Not authenticated');
+  }
+
+  const encoder = new TextEncoder();
+  const pathBuffer = encoder.encode(path);
+  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: iv as BufferSource },
+    masterKey,
+    pathBuffer
+  );
+
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(encrypted), iv.length);
+
+  return arrayBufferToBase64(combined.buffer);
 }

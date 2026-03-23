@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { 
   Shield, 
   Folder, 
@@ -12,11 +12,15 @@ import {
   Upload,
   ChevronRight,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  X,
+  CheckCircle,
+  Lock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getStoredCredentials, clearCredentials, clearAuthToken } from "@/lib/crypto";
-import { nodeApi, Node } from "@/lib/api";
+import { Node } from "@/lib/api";
+import { useFiles } from "@/hooks/useFiles";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -25,6 +29,9 @@ export default function DashboardPage() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [currentPath, setCurrentPath] = useState<string[]>(["root"]);
   const [userId, setUserId] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  
+  const { uploadFiles, uploadProgress, isUploading, clearUploadProgress, loadNodes } = useFiles();
 
   useEffect(() => {
     const credentials = getStoredCredentials();
@@ -33,17 +40,16 @@ export default function DashboardPage() {
       return;
     }
     setUserId(credentials.userId);
-    loadNodes();
+    loadUserNodes();
   }, [router]);
 
-  const loadNodes = async () => {
+  const loadUserNodes = async () => {
     try {
       setIsLoading(true);
       setError(null);
-      // For now, we assume a root directory exists
-      // In a real app, you'd create/get the root directory first
-      // This is a placeholder - in a real implementation, you'd need
-      // to create a root directory for the user or handle this differently
+      // Load root nodes (parent = "root")
+      const userNodes = await loadNodes("root");
+      setNodes(userNodes);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load files";
       setError(message);
@@ -56,6 +62,61 @@ export default function DashboardPage() {
     clearCredentials();
     clearAuthToken();
     router.push("/auth");
+  };
+
+  // Drag and drop handlers
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    try {
+      setError(null);
+      await uploadFiles(files, "root");
+      // Reload nodes after upload
+      await loadUserNodes();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Upload failed";
+      setError(message);
+    }
+  }, [uploadFiles, loadUserNodes]);
+
+  // File input handler for click-to-upload
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    try {
+      setError(null);
+      await uploadFiles(files, "root");
+      await loadUserNodes();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Upload failed";
+      setError(message);
+    }
+    
+    // Reset input
+    e.target.value = '';
   };
 
   if (isLoading) {
@@ -114,6 +175,12 @@ export default function DashboardPage() {
           >
             <AlertCircle className="w-5 h-5 text-red-400" />
             <span className="text-sm text-red-200">{error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-400 hover:text-red-300"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </motion.div>
         )}
 
@@ -121,8 +188,8 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 mb-6 text-sm">
           {currentPath.map((path, index) => (
             <span key={index} className="flex items-center gap-2">
-              <span className={index === currentPath.length - 1 ? "text-white/80" : "text-blue-200/50"}>
-                {path}
+              <span className={index === currentPath.length - 1 ? "text-white/80" : "text-blue-200/50 cursor-pointer hover:text-blue-200/80"}>
+                {path === "root" ? "Home" : path}
               </span>
               {index < currentPath.length - 1 && (
                 <ChevronRight className="w-4 h-4 text-blue-200/30" />
@@ -133,25 +200,57 @@ export default function DashboardPage() {
 
         {/* Toolbar */}
         <div className="flex items-center gap-4 mb-8">
-          <Button className="btn-ice">
+          <Button className="btn-ice" disabled={isUploading}>
             <FolderPlus className="w-4 h-4 mr-2" />
             New Folder
           </Button>
-          <Button className="btn-ice" variant="outline">
-            <Upload className="w-4 h-4 mr-2" />
-            Upload File
-          </Button>
+          <div className="relative">
+            <input
+              type="file"
+              multiple
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              onChange={handleFileSelect}
+              disabled={isUploading}
+              id="file-upload"
+            />
+            <label htmlFor="file-upload">
+              <Button className="btn-ice" variant="outline" disabled={isUploading}>
+                {isUploading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4 mr-2" />
+                )}
+                {isUploading ? "Uploading..." : "Upload File"}
+              </Button>
+            </label>
+          </div>
         </div>
 
-        {/* File Grid */}
-        <div className="ice-glass-frost rounded-2xl p-6">
-          {nodes.length === 0 ? (
+        {/* Drop Zone */}
+        <div
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          className={`ice-glass-frost rounded-2xl p-8 transition-all duration-300 ${
+            isDragging 
+              ? "border-2 border-dashed border-blue-400/50 bg-blue-500/10" 
+              : ""
+          }`}
+        >
+          {nodes.length === 0 && !isDragging && !isUploading ? (
             <div className="text-center py-16">
-              <Folder className="w-16 h-16 text-blue-200/20 mx-auto mb-4" strokeWidth={1} />
-              <h3 className="text-lg text-white/60 mb-2">No files yet</h3>
+              <div className="w-20 h-20 rounded-full bg-white/[0.03] flex items-center justify-center mx-auto mb-6">
+                <Upload className="w-10 h-10 text-blue-200/40" strokeWidth={1} />
+              </div>
+              <h3 className="text-lg text-white/60 mb-2">Drop files here</h3>
               <p className="text-sm text-blue-200/40">
-                Create a folder or upload your first file
+                Drag and drop files, or click Upload File to browse
               </p>
+              <div className="flex items-center justify-center gap-2 mt-4 text-xs text-blue-200/30">
+                <Lock className="w-3 h-3" />
+                <span>All files are encrypted before upload</span>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -167,14 +266,89 @@ export default function DashboardPage() {
                     <File className="w-12 h-12 text-blue-200/40 mb-3" strokeWidth={1.5} />
                   )}
                   <p className="text-sm text-white/70 truncate">
-                    {/* In real implementation, decrypt and display name */}
-                    {node.Id.slice(0, 8)}...
+                    {node.B64EncryptedPath}
                   </p>
                 </motion.div>
               ))}
+              
+              {/* Drop indicator */}
+              {isDragging && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="col-span-full border-2 border-dashed border-blue-400/50 rounded-xl p-8 text-center bg-blue-500/10"
+                >
+                  <Upload className="w-8 h-8 text-blue-300/60 mx-auto mb-2" />
+                  <p className="text-blue-200/60">Drop files here to upload</p>
+                </motion.div>
+              )}
             </div>
           )}
         </div>
+
+        {/* Upload Progress */}
+        <AnimatePresence>
+          {uploadProgress.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="mt-6 ice-glass-frost rounded-xl p-4"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-white/80">Upload Progress</h3>
+                <button
+                  onClick={clearUploadProgress}
+                  className="text-xs text-blue-200/50 hover:text-blue-200/80"
+                  disabled={isUploading}
+                >
+                  Clear
+                </button>
+              </div>
+              <div className="space-y-3">
+                {uploadProgress.map((progress, index) => (
+                  <div key={index} className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/70 truncate max-w-[200px]">
+                          {progress.fileName}
+                        </span>
+                        {progress.status === 'completed' && (
+                          <CheckCircle className="w-3 h-3 text-green-400" />
+                        )}
+                        {progress.status === 'error' && (
+                          <AlertCircle className="w-3 h-3 text-red-400" />
+                        )}
+                      </div>
+                      <span className={
+                        progress.status === 'error' ? 'text-red-400' :
+                        progress.status === 'completed' ? 'text-green-400' :
+                        'text-blue-200/50'
+                      }>
+                        {progress.status === 'encrypting' && 'Encrypting...'}
+                        {progress.status === 'uploading' && 'Uploading...'}
+                        {progress.status === 'completed' && 'Done'}
+                        {progress.status === 'error' && progress.error || 'Error'}
+                      </span>
+                    </div>
+                    <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                      <motion.div
+                        className={`h-full rounded-full ${
+                          progress.status === 'error' ? 'bg-red-500' :
+                          progress.status === 'completed' ? 'bg-green-500' :
+                          'bg-blue-400'
+                        }`}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progress.progress}%` }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Info Panel */}
         <div className="mt-8 text-center">

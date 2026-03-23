@@ -7,6 +7,7 @@ import { Eye, EyeOff, Lock, Sparkles, Shield, Key, Fingerprint, AlertCircle, Che
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
+import { isAuthenticated, getStoredUserId, clearAuthToken, clearStoredUserId } from "@/lib/crypto";
 
 // Pre-computed particle positions for SSR
 const FROST_PARTICLES = [
@@ -44,11 +45,26 @@ export default function AuthPage() {
   const [signUpPassword, setSignUpPassword] = useState("");
   const [signUpConfirmPassword, setSignUpConfirmPassword] = useState("");
   
+  // Session restore state
+  const [hasStoredSession, setHasStoredSession] = useState(false);
+  const [storedUserId, setStoredUserId] = useState<string | null>(null);
+  const [unlockPassword, setUnlockPassword] = useState("");
+  const [isUnlocking, setIsUnlocking] = useState(false);
+  
   const { signUp, signIn, isLoading, error, clearError } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     setMounted(true);
+    
+    // Check for stored session
+    if (isAuthenticated()) {
+      const userId = getStoredUserId();
+      if (userId) {
+        setHasStoredSession(true);
+        setStoredUserId(userId);
+      }
+    }
   }, []);
 
   const handleSignUp = async (e: React.FormEvent) => {
@@ -83,6 +99,31 @@ export default function AuthPage() {
       // Redirect to dashboard
       router.push("/dashboard");
     }
+  };
+
+  const handleUnlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    clearError();
+    
+    if (!storedUserId) return;
+    
+    setIsUnlocking(true);
+    
+    const result = await signIn(storedUserId, unlockPassword);
+    
+    if (result.success) {
+      router.push("/dashboard");
+    }
+    
+    setIsUnlocking(false);
+  };
+
+  const handleClearSession = () => {
+    clearAuthToken();
+    clearStoredUserId();
+    setHasStoredSession(false);
+    setStoredUserId(null);
+    setUnlockPassword("");
   };
 
   return (
@@ -169,37 +210,120 @@ export default function AuthPage() {
               </p>
             </motion.div>
 
-            {/* Tab Buttons - Darker Glass */}
-            <div className="grid grid-cols-2 gap-1 mb-10 bg-black/30 border border-white/5 rounded-lg p-1">
-              <button
-                onClick={() => {
-                  setActiveTab("signin");
-                  clearError();
-                  setSuccess(null);
-                }}
-                className={`py-2.5 px-4 rounded-md transition-all duration-300 tracking-wide text-sm font-medium ${
-                  activeTab === "signin"
-                    ? "bg-white/10 text-white"
-                    : "text-blue-200/60 hover:text-blue-200/80"
-                }`}
+            {hasStoredSession ? (
+              /* Session Restore UI */
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-10"
               >
-                Sign In
-              </button>
-              <button
-                onClick={() => {
-                  setActiveTab("signup");
-                  clearError();
-                  setSuccess(null);
-                }}
-                className={`py-2.5 px-4 rounded-md transition-all duration-300 tracking-wide text-sm font-medium ${
-                  activeTab === "signup"
-                    ? "bg-white/10 text-white"
-                    : "text-blue-200/60 hover:text-blue-200/80"
-                }`}
-              >
-                Sign Up
-              </button>
-            </div>
+                <div className="text-center mb-6">
+                  <div className="w-14 h-14 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto mb-4">
+                    <Lock className="w-6 h-6 text-blue-300/60" strokeWidth={1.5} />
+                  </div>
+                  <h3 className="text-white/90 text-lg mb-1">Welcome back</h3>
+                  <p className="text-sm text-blue-200/40">
+                    User: {storedUserId?.slice(0, 8)}...
+                  </p>
+                </div>
+
+                <form onSubmit={handleUnlock} className="space-y-5">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium tracking-wider text-blue-200/70 uppercase flex items-center gap-2 ml-1">
+                      <Lock className="w-3.5 h-3.5" strokeWidth={2} />
+                      Password
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        value={unlockPassword}
+                        onChange={(e) => setUnlockPassword(e.target.value)}
+                        placeholder="Enter your password to unlock"
+                        className="ice-input text-blue-100 placeholder:text-blue-200/30 h-12 rounded-lg text-sm pr-12"
+                        required
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-200/40 hover:text-blue-200/70 transition-colors"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4" strokeWidth={2} />
+                        ) : (
+                          <Eye className="w-4 h-4" strokeWidth={2} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <Button
+                      type="submit"
+                      disabled={isUnlocking}
+                      className="w-full h-12 btn-ice text-white font-medium tracking-wider rounded-lg disabled:opacity-50"
+                    >
+                      {isUnlocking ? (
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                          className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full"
+                        />
+                      ) : (
+                        <>
+                          <Lock className="w-4 h-4 mr-2" strokeWidth={2} />
+                          UNLOCK SESSION
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </form>
+
+                <div className="mt-4 text-center">
+                  <button
+                    type="button"
+                    onClick={handleClearSession}
+                    className="text-xs text-blue-200/40 hover:text-blue-200/70 transition-colors"
+                  >
+                    Use different account
+                  </button>
+                </div>
+              </motion.div>
+            ) : (
+              <>
+                {/* Tab Buttons - Darker Glass */}
+                <div className="grid grid-cols-2 gap-1 mb-10 bg-black/30 border border-white/5 rounded-lg p-1">
+                  <button
+                    onClick={() => {
+                      setActiveTab("signin");
+                      clearError();
+                      setSuccess(null);
+                    }}
+                    className={`py-2.5 px-4 rounded-md transition-all duration-300 tracking-wide text-sm font-medium ${
+                      activeTab === "signin"
+                        ? "bg-white/10 text-white"
+                        : "text-blue-200/60 hover:text-blue-200/80"
+                    }`}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("signup");
+                      clearError();
+                      setSuccess(null);
+                    }}
+                    className={`py-2.5 px-4 rounded-md transition-all duration-300 tracking-wide text-sm font-medium ${
+                      activeTab === "signup"
+                        ? "bg-white/10 text-white"
+                        : "text-blue-200/60 hover:text-blue-200/80"
+                    }`}
+                  >
+                    Sign Up
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* Error/Success Messages */}
             <AnimatePresence>
@@ -227,7 +351,8 @@ export default function AuthPage() {
               )}
             </AnimatePresence>
 
-            {/* Tab Content */}
+            {/* Tab Content - only show when not in session restore mode */}
+            {!hasStoredSession && (
             <AnimatePresence mode="wait">
               {activeTab === "signin" ? (
                 <motion.form
@@ -397,6 +522,7 @@ export default function AuthPage() {
                 </motion.form>
               )}
             </AnimatePresence>
+            )}
 
             {/* Footer */}
             <motion.div
