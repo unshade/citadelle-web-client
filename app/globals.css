@@ -8,7 +8,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-playfair), ui-serif, Georgia, serif;
+  --font-serif: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -49,11 +49,11 @@
 }
 
 :root {
-  --background: #0a1628;
+  --background: #050812;
   --foreground: #e8f4f8;
-  --card: #0f1d32;
+  --card: #050812;
   --card-foreground: #e8f4f8;
-  --popover: #0f1d32;
+  --popover: #050812;
   --popover-foreground: #e8f4f8;
   --primary: #4a9eff;
   --primary-foreground: #0a1628;
@@ -73,7 +73,7 @@
   --chart-4: #c084fc;
   --chart-5: #e879f9;
   --radius: 0.75rem;
-  --sidebar: #0f1d32;
+  --sidebar: #050812;
   --sidebar-foreground: #e8f4f8;
   --sidebar-primary: #4a9eff;
   --sidebar-primary-foreground: #0a1628;
@@ -84,11 +84,11 @@
 }
 
 .dark {
-  --background: #0a1628;
+  --background: #050812;
   --foreground: #e8f4f8;
-  --card: #0f1d32;
+  --card: #050812;
   --card-foreground: #e8f4f8;
-  --popover: #0f1d32;
+  --popover: #050812;
   --popover-foreground: #e8f4f8;
   --primary: #4a9eff;
   --primary-foreground: #0a1628;
@@ -108,7 +108,7 @@
   --chart-4: #c084fc;
   --chart-5: #e879f9;
   --radius: 0.75rem;
-  --sidebar: #0f1d32;
+  --sidebar: #050812;
   --sidebar-foreground: #e8f4f8;
   --sidebar-primary: #4a9eff;
   --sidebar-primary-foreground: #0a1628;
@@ -132,34 +132,88 @@
 
 @layer components {
   .font-serif {
-    font-family: var(--font-playfair), ui-serif, Georgia, serif;
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   }
 }
 
 @layer utilities {
-  /* Arctic Glass Effects */
+  /* Deep Arctic Glass Effects - More Frost, More Blur */
   .ice-glass {
     background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.08) 0%,
-      rgba(200, 220, 255, 0.03) 50%,
-      rgba(255, 255, 255, 0.05) 100%
+      160deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      rgba(200, 220, 255, 0.02) 40%,
+      rgba(255, 255, 255, 0.03) 100%
     );
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(200, 220, 255, 0.15);
+    backdrop-filter: blur(60px) saturate(180%);
+    -webkit-backdrop-filter: blur(60px) saturate(180%);
+    border: 1px solid rgba(200, 220, 255, 0.12);
     box-shadow: 
-      0 8px 32px 0 rgba(0, 20, 60, 0.4),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+      0 25px 50px -12px rgba(0, 10, 30, 0.6),
+      inset 0 1px 1px rgba(255, 255, 255, 0.08),
+      inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+  }
+  
+  .ice-glass-deep {
+    background: linear-gradient(
+      165deg,
+      rgba(15, 30, 50, 0.7) 0%,
+      rgba(10, 22, 40, 0.85) 30%,
+      rgba(5, 15, 35, 0.9) 70%,
+      rgba(8, 20, 45, 0.8) 100%
+    );
+    backdrop-filter: blur(80px) saturate(200%);
+    -webkit-backdrop-filter: blur(80px) saturate(200%);
+    border: 1px solid rgba(200, 220, 255, 0.08);
+    box-shadow: 
+      0 35px 60px -15px rgba(0, 5, 20, 0.7),
+      0 0 0 1px rgba(255, 255, 255, 0.02),
+      inset 0 0.5px 0.5px rgba(255, 255, 255, 0.06);
+  }
+
+  .ice-glass-frost {
+    background: 
+      linear-gradient(
+        170deg,
+        rgba(255, 255, 255, 0.05) 0%,
+        rgba(200, 215, 235, 0.02) 30%,
+        rgba(180, 200, 220, 0.015) 60%,
+        rgba(160, 185, 210, 0.02) 100%
+      ),
+      radial-gradient(
+        ellipse at 30% 20%,
+        rgba(220, 235, 255, 0.04) 0%,
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse at 70% 80%,
+        rgba(200, 220, 240, 0.03) 0%,
+        transparent 50%
+      ),
+      linear-gradient(
+        180deg,
+        rgba(8, 12, 25, 0.4) 0%,
+        rgba(5, 8, 18, 0.6) 50%,
+        rgba(3, 6, 15, 0.7) 100%
+      );
+    backdrop-filter: blur(120px) saturate(300%);
+    -webkit-backdrop-filter: blur(120px) saturate(300%);
+    border: 1px solid rgba(180, 200, 220, 0.08);
+    border-top: 1px solid rgba(255, 255, 255, 0.03);
+    border-left: 1px solid rgba(255, 255, 255, 0.02);
+    box-shadow: 
+      0 50px 100px -20px rgba(0, 0, 0, 0.9),
+      0 0 0 1px rgba(255, 255, 255, 0.015),
+      inset 0 1px 0 rgba(255, 255, 255, 0.03),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.3);
   }
   
   .ice-glass-strong {
     background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.12) 0%,
-      rgba(180, 200, 230, 0.06) 50%,
-      rgba(255, 255, 255, 0.08) 100%
+      165deg,
+      rgba(255, 255, 255, 0.06) 0%,
+      rgba(180, 200, 230, 0.03) 50%,
+      rgba(255, 255, 255, 0.04) 100%
     );
     backdrop-filter: blur(32px);
     -webkit-backdrop-filter: blur(32px);
@@ -171,113 +225,114 @@
   }
   
   .ice-input {
-    background: rgba(10, 22, 40, 0.6);
-    border: 1px solid rgba(200, 220, 255, 0.12);
-    backdrop-filter: blur(8px);
+    background: rgba(5, 8, 18, 0.5);
+    border: 1px solid rgba(200, 220, 255, 0.08);
+    backdrop-filter: blur(16px);
     transition: all 0.3s ease;
   }
   
   .ice-input:focus {
-    background: rgba(10, 22, 40, 0.8);
-    border-color: rgba(74, 158, 255, 0.5);
-    box-shadow: 0 0 20px rgba(74, 158, 255, 0.2);
+    background: rgba(5, 8, 18, 0.7);
+    border-color: rgba(74, 158, 255, 0.4);
+    box-shadow: 
+      0 0 0 1px rgba(74, 158, 255, 0.2),
+      0 0 20px rgba(74, 158, 255, 0.15);
   }
   
   .ice-input::placeholder {
-    color: rgba(200, 220, 255, 0.35);
+    color: rgba(180, 200, 220, 0.25);
   }
   
-  /* Frost Text Effect */
+  /* Deep Arctic Background */
+  .arctic-deep {
+    background: 
+      radial-gradient(ellipse at 20% 20%, rgba(20, 40, 70, 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 80%, rgba(15, 35, 60, 0.1) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, rgba(10, 25, 50, 0.05) 0%, transparent 70%),
+      linear-gradient(180deg, #050812 0%, #070a14 50%, #050812 100%);
+    background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%;
+  }
+  
+  /* Frost Text Effects */
   .frost-text {
     background: linear-gradient(
       180deg,
       #ffffff 0%,
-      #e8f4f8 50%,
-      #c8dcf0 100%
+      #d0e0f0 30%,
+      #a0c0e0 100%
     );
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    text-shadow: 0 2px 20px rgba(255, 255, 255, 0.15);
+    text-shadow: 0 0 40px rgba(74, 158, 255, 0.2);
   }
   
   .frost-text-subtle {
-    color: rgba(200, 220, 255, 0.7);
+    color: rgba(150, 180, 210, 0.5);
+    letter-spacing: 0.2em;
   }
   
   /* Arctic Gradient Background */
   .arctic-bg {
-    background: linear-gradient(
-      135deg,
-      #0a1628 0%,
-      #0f1d32 25%,
-      #152238 50%,
-      #0f1d32 75%,
-      #0a1628 100%
-    );
-    background-size: 400% 400%;
-    animation: arctic-shift 20s ease infinite;
+    background: 
+      radial-gradient(ellipse at 20% 20%, rgba(30, 50, 80, 0.03) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 80%, rgba(20, 40, 70, 0.02) 0%, transparent 60%),
+      linear-gradient(180deg, #050812 0%, #080b16 100%);
   }
   
-  @keyframes arctic-shift {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
-  
-  /* Ice Shimmer */
-  .ice-shimmer {
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.08) 50%,
-      transparent 100%
-    );
-  }
-  
-  /* Frost Particles */
+  /* Frost Particles - More Subtle */
   .frost-particle {
     background: radial-gradient(
       circle,
-      rgba(255, 255, 255, 0.8) 0%,
-      rgba(200, 220, 255, 0.4) 50%,
+      rgba(200, 220, 255, 0.3) 0%,
+      rgba(150, 180, 210, 0.1) 40%,
       transparent 100%
     );
-    box-shadow: 0 0 10px rgba(200, 220, 255, 0.5);
+    box-shadow: 0 0 6px rgba(150, 180, 210, 0.2);
   }
   
-  /* Button Ice Effect */
+  /* Button Ice Effect - Colder */
   .btn-ice {
     background: linear-gradient(
-      135deg,
-      rgba(74, 158, 255, 0.9) 0%,
-      rgba(92, 122, 234, 0.9) 100%
+      180deg,
+      rgba(60, 120, 200, 0.2) 0%,
+      rgba(40, 90, 170, 0.3) 100%
     );
-    border: 1px solid rgba(200, 220, 255, 0.3);
+    border: 1px solid rgba(100, 160, 220, 0.2);
+    border-top: 1px solid rgba(130, 190, 240, 0.25);
+    backdrop-filter: blur(8px);
     box-shadow: 
-      0 4px 20px rgba(74, 158, 255, 0.3),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      0 4px 20px rgba(0, 20, 60, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
     transition: all 0.3s ease;
   }
   
   .btn-ice:hover {
     background: linear-gradient(
-      135deg,
-      rgba(74, 158, 255, 1) 0%,
-      rgba(92, 122, 234, 1) 100%
+      180deg,
+      rgba(70, 140, 220, 0.25) 0%,
+      rgba(50, 110, 190, 0.35) 100%
     );
+    border-color: rgba(120, 180, 230, 0.3);
     box-shadow: 
-      0 6px 30px rgba(74, 158, 255, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    transform: translateY(-2px);
+      0 6px 30px rgba(0, 30, 80, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transform: translateY(-1px);
   }
   
   .btn-ice:active {
     transform: translateY(0);
+    background: linear-gradient(
+      180deg,
+      rgba(30, 90, 170, 0.3) 0%,
+      rgba(20, 70, 150, 0.4) 100%
+    );
   }
   
-  /* Subtle glow */
-  .glow-ice {
-    box-shadow: 0 0 40px rgba(74, 158, 255, 0.15);
+  /* Subtle glass glow */
+  .glow-ice-subtle {
+    box-shadow: 
+      0 0 100px rgba(74, 158, 255, 0.03),
+      0 0 60px rgba(74, 158, 255, 0.02);
   }
 }
