@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { nodeApi, Node } from '@/lib/api';
-import { encryptFile, encryptPath, EncryptedFile } from '@/lib/crypto';
+import { encryptFile, encryptPath, EncryptedFile, getStoredCredentials } from '@/lib/crypto';
 
 interface UploadProgress {
   fileName: string;
@@ -13,6 +13,7 @@ interface UploadProgress {
 
 interface UseFilesReturn {
   uploadFiles: (files: File[], parentUuid: string) => Promise<void>;
+  createFolder: (folderName: string, parentUuid: string) => Promise<void>;
   uploadProgress: UploadProgress[];
   isUploading: boolean;
   clearUploadProgress: () => void;
@@ -108,8 +109,33 @@ export function useFiles(): UseFilesReturn {
     }
   };
 
+  const createFolder = async (folderName: string, parentUuid: string): Promise<void> => {
+    const credentials = getStoredCredentials();
+    if (!credentials) {
+      throw new Error('Not authenticated');
+    }
+
+    // Build the path
+    const path = parentUuid === 'root' ? `/${folderName}` : `/path/${folderName}`;
+    const encryptedPath = await encryptPath(path);
+
+    // Encrypt the folder name
+    const encryptedName = await encryptPath(folderName);
+
+    await nodeApi.createNode({
+      b64EncryptedEncryptionKey: '', // Directories don't have file encryption keys
+      b64EncryptionNonce: '', // Directories don't have file nonces
+      b64EncryptedName: encryptedName,
+      b64EncryptedPath: encryptedPath,
+      isDirectory: true,
+      parentUuid,
+      version: 1,
+    });
+  };
+
   return {
     uploadFiles,
+    createFolder,
     uploadProgress,
     isUploading,
     clearUploadProgress,

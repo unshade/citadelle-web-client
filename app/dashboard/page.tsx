@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { getStoredCredentials, clearCredentials, clearAuthToken } from "@/lib/crypto";
 import { Node } from "@/lib/api";
 import { useFiles } from "@/hooks/useFiles";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -30,8 +32,11 @@ export default function DashboardPage() {
   const [currentPath, setCurrentPath] = useState<string[]>(["root"]);
   const [userId, setUserId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   
-  const { uploadFiles, uploadProgress, isUploading, clearUploadProgress, loadNodes } = useFiles();
+  const { uploadFiles, createFolder, uploadProgress, isUploading, clearUploadProgress, loadNodes } = useFiles();
 
   useEffect(() => {
     const credentials = getStoredCredentials();
@@ -119,6 +124,25 @@ export default function DashboardPage() {
     e.target.value = '';
   };
 
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    
+    try {
+      setIsCreatingFolder(true);
+      setError(null);
+      const currentParentId = currentPath[currentPath.length - 1];
+      await createFolder(newFolderName.trim(), currentParentId === 'root' ? 'root' : currentParentId);
+      setNewFolderName("");
+      setIsCreateFolderOpen(false);
+      await loadUserNodes();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create folder";
+      setError(message);
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen arctic-bg flex items-center justify-center">
@@ -200,7 +224,11 @@ export default function DashboardPage() {
 
         {/* Toolbar */}
         <div className="flex items-center gap-4 mb-8">
-          <Button className="btn-ice" disabled={isUploading}>
+          <Button 
+            className="btn-ice" 
+            disabled={isUploading || isCreatingFolder}
+            onClick={() => setIsCreateFolderOpen(true)}
+          >
             <FolderPlus className="w-4 h-4 mr-2" />
             New Folder
           </Button>
@@ -362,6 +390,75 @@ export default function DashboardPage() {
             All files are encrypted on your device before being uploaded
           </p>
         </div>
+
+        {/* Create Folder Modal */}
+        <AnimatePresence>
+          {isCreateFolderOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+              onClick={() => setIsCreateFolderOpen(false)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.2 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Card className="ice-glass-deep p-6 w-96 border border-white/10">
+                  <h3 className="text-lg font-medium text-white/90 mb-4">
+                    Create New Folder
+                  </h3>
+                  <Input
+                    placeholder="Folder name"
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newFolderName.trim()) {
+                        handleCreateFolder();
+                      }
+                      if (e.key === 'Escape') {
+                        setIsCreateFolderOpen(false);
+                      }
+                    }}
+                    autoFocus
+                    className="bg-white/5 border-white/10 text-white placeholder:text-white/30"
+                  />
+                  <div className="flex justify-end gap-2 mt-4">
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setNewFolderName("");
+                        setIsCreateFolderOpen(false);
+                      }}
+                      disabled={isCreatingFolder}
+                      className="text-blue-200/60 hover:text-blue-200"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleCreateFolder}
+                      disabled={!newFolderName.trim() || isCreatingFolder}
+                      className="btn-ice"
+                    >
+                      {isCreatingFolder ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        'Create'
+                      )}
+                    </Button>
+                  </div>
+                </Card>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   );
