@@ -24,12 +24,17 @@ import { useFiles } from "@/hooks/useFiles";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 
+interface PathLevel {
+  id: string;
+  name: string;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
-  const [currentPath, setCurrentPath] = useState<string[]>(["root"]);
+  const [pathStack, setPathStack] = useState<PathLevel[]>([{ id: "root", name: "Home" }]);
   const [userId, setUserId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -37,6 +42,8 @@ export default function DashboardPage() {
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   
   const { uploadFiles, createFolder, uploadProgress, isUploading, clearUploadProgress, loadNodes } = useFiles();
+  
+  const currentFolderId = pathStack[pathStack.length - 1]?.id || "root";
 
   useEffect(() => {
     const credentials = getStoredCredentials();
@@ -45,15 +52,23 @@ export default function DashboardPage() {
       return;
     }
     setUserId(credentials.userId);
-    loadUserNodes();
+    // Only load nodes on initial mount, not on path stack changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
-  const loadUserNodes = async () => {
+  useEffect(() => {
+    // Load nodes when current folder changes
+    if (userId) {
+      loadUserNodes(currentFolderId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, currentFolderId]);
+
+  const loadUserNodes = async (folderId: string = currentFolderId) => {
     try {
       setIsLoading(true);
       setError(null);
-      // Load root nodes (parent = "root")
-      const userNodes = await loadNodes("root");
+      const userNodes = await loadNodes(folderId);
       setNodes(userNodes);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load files";
@@ -61,6 +76,17 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const navigateToFolder = (folderId: string, folderName: string) => {
+    setPathStack(prev => [...prev, { id: folderId, name: folderName }]);
+    loadUserNodes(folderId);
+  };
+
+  const navigateToPath = (index: number) => {
+    const newStack = pathStack.slice(0, index + 1);
+    setPathStack(newStack);
+    loadUserNodes(newStack[newStack.length - 1].id);
   };
 
   const handleLogout = () => {
@@ -97,14 +123,14 @@ export default function DashboardPage() {
 
     try {
       setError(null);
-      await uploadFiles(files, "root");
+      await uploadFiles(files, currentFolderId);
       // Reload nodes after upload
-      await loadUserNodes();
+      await loadUserNodes(currentFolderId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       setError(message);
     }
-  }, [uploadFiles, loadUserNodes]);
+  }, [uploadFiles, loadUserNodes, currentFolderId]);
 
   // File input handler for click-to-upload
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,8 +139,8 @@ export default function DashboardPage() {
 
     try {
       setError(null);
-      await uploadFiles(files, "root");
-      await loadUserNodes();
+      await uploadFiles(files, currentFolderId);
+      await loadUserNodes(currentFolderId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       setError(message);
@@ -130,11 +156,10 @@ export default function DashboardPage() {
     try {
       setIsCreatingFolder(true);
       setError(null);
-      const currentParentId = currentPath[currentPath.length - 1];
-      await createFolder(newFolderName.trim(), currentParentId === 'root' ? 'root' : currentParentId);
+      await createFolder(newFolderName.trim(), currentFolderId);
       setNewFolderName("");
       setIsCreateFolderOpen(false);
-      await loadUserNodes();
+      await loadUserNodes(currentFolderId);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create folder";
       setError(message);
@@ -210,12 +235,15 @@ export default function DashboardPage() {
 
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 mb-6 text-sm">
-          {currentPath.map((path, index) => (
-            <span key={index} className="flex items-center gap-2">
-              <span className={index === currentPath.length - 1 ? "text-white/80" : "text-blue-200/50 cursor-pointer hover:text-blue-200/80"}>
-                {path === "root" ? "Home" : path}
+          {pathStack.map((level, index) => (
+            <span key={level.id} className="flex items-center gap-2">
+              <span 
+                onClick={() => navigateToPath(index)}
+                className={index === pathStack.length - 1 ? "text-white/80" : "text-blue-200/50 cursor-pointer hover:text-blue-200/80"}
+              >
+                {level.name}
               </span>
-              {index < currentPath.length - 1 && (
+              {index < pathStack.length - 1 && (
                 <ChevronRight className="w-4 h-4 text-blue-200/30" />
               )}
             </span>
@@ -225,7 +253,7 @@ export default function DashboardPage() {
         {/* Toolbar */}
         <div className="flex items-center gap-4 mb-8">
           <Button 
-            className="btn-ice" 
+            className="btn-ice text-white/90" 
             disabled={isUploading || isCreatingFolder}
             onClick={() => setIsCreateFolderOpen(true)}
           >
@@ -286,6 +314,13 @@ export default function DashboardPage() {
                 <motion.div
                   key={node.Id}
                   whileHover={{ scale: 1.02 }}
+                  onClick={() => {
+                    console.log('Clicked node:', node);
+                    if (node.IsDirectory) {
+                      console.log('Navigating to folder:', node.Id, node.B64EncryptedPath);
+                      navigateToFolder(node.Id, node.B64EncryptedPath);
+                    }
+                  }}
                   className="p-4 rounded-xl bg-white/[0.03] border border-white/5 hover:border-white/10 cursor-pointer transition-colors"
                 >
                   {node.IsDirectory ? (
@@ -442,7 +477,7 @@ export default function DashboardPage() {
                     <Button
                       onClick={handleCreateFolder}
                       disabled={!newFolderName.trim() || isCreatingFolder}
-                      className="btn-ice"
+                      className="btn-ice text-white/90"
                     >
                       {isCreatingFolder ? (
                         <>
