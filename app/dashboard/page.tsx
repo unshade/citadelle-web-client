@@ -1,92 +1,111 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Shield, 
-  Folder, 
-  File, 
-  LogOut, 
+import {
+  Shield,
+  Folder,
+  File,
+  LogOut,
   FolderPlus,
   Upload,
+  Download,
+  Trash2,
   ChevronRight,
   Loader2,
   AlertCircle,
   X,
   CheckCircle,
-  Lock
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getStoredCredentials, clearCredentials, clearAuthToken } from "@/lib/crypto";
-import { Node } from "@/lib/api";
-import { useFiles } from "@/hooks/useFiles";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { getStoredCredentials, clearCredentials, clearAuthToken } from "@/lib/storage";
+import { decryptName } from "@/lib/crypto";
+import { createFolderFormSchema } from "@/lib/schemas";
+import type { CreateFolderFormData, Node } from "@/lib/schemas";
+import { useDirectoryNodes, useUploadFiles, useCreateFolder, useDownloadFile, useDeleteNode } from "@/hooks/useFiles";
 
-interface PathLevel {
+type PathLevel = {
   id: string;
   name: string;
+};
+
+function useDecryptedNames(nodes: Node[]) {
+  const [names, setNames] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function decrypt() {
+      const result: Record<string, string> = {};
+      for (const node of nodes) {
+        try {
+          result[node.Id] = await decryptName(node.EncryptedName);
+        } catch {
+          result[node.Id] = node.B64EncryptedPath;
+        }
+      }
+      if (!cancelled) setNames(result);
+    }
+
+    if (nodes.length > 0) decrypt();
+    return () => { cancelled = true; };
+  }, [nodes]);
+
+  return names;
 }
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [pathStack, setPathStack] = useState<PathLevel[]>([{ id: "root", name: "Home" }]);
+  const [pathStack, setPathStack] = useState<PathLevel[]>([
+    { id: "root", name: "Home" },
+  ]);
   const [userId, setUserId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  
-  const { uploadFiles, createFolder, uploadProgress, isUploading, clearUploadProgress, loadNodes } = useFiles();
-  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const currentFolderId = pathStack[pathStack.length - 1]?.id || "root";
 
+  const nodesQuery = useDirectoryNodes(currentFolderId);
+  const nodes = nodesQuery.data ?? [];
+  const decryptedNames = useDecryptedNames(nodes);
+
+  const { uploadFiles, isUploading, uploadProgress, clearUploadProgress } =
+    useUploadFiles(currentFolderId);
+  const createFolderMutation = useCreateFolder(currentFolderId);
+  const deleteNode = useDeleteNode(currentFolderId);
+  const downloadFile = useDownloadFile();
+  const [nodeToDelete, setNodeToDelete] = useState<Node | null>(null);
+
+  const folderForm = useForm<CreateFolderFormData>({
+    resolver: zodResolver(createFolderFormSchema),
+    defaultValues: { folderName: "" },
+  });
+
   useEffect(() => {
-    const credentials = getStoredCredentials();
-    if (!credentials) {
-      router.push("/auth");
-      return;
-    }
-    setUserId(credentials.userId);
-    // Only load nodes on initial mount, not on path stack changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    requestAnimationFrame(() => {
+      const credentials = getStoredCredentials();
+      if (!credentials) {
+        router.push("/auth");
+        return;
+      }
+      setUserId(credentials.userId);
+    });
   }, [router]);
 
-  useEffect(() => {
-    // Load nodes when current folder changes
-    if (userId) {
-      loadUserNodes(currentFolderId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, currentFolderId]);
-
-  const loadUserNodes = async (folderId: string = currentFolderId) => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const userNodes = await loadNodes(folderId);
-      setNodes(userNodes);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load files";
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const navigateToFolder = (folderId: string, folderName: string) => {
-    setPathStack(prev => [...prev, { id: folderId, name: folderName }]);
-    loadUserNodes(folderId);
+    setPathStack((prev) => [...prev, { id: folderId, name: folderName }]);
   };
 
   const navigateToPath = (index: number) => {
-    const newStack = pathStack.slice(0, index + 1);
-    setPathStack(newStack);
-    loadUserNodes(newStack[newStack.length - 1].id);
+    setPathStack((prev) => prev.slice(0, index + 1));
   };
 
   const handleLogout = () => {
@@ -95,7 +114,6 @@ export default function DashboardPage() {
     router.push("/auth");
   };
 
-  // Drag and drop handlers
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -113,62 +131,55 @@ export default function DashboardPage() {
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
 
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length === 0) return;
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) return;
 
-    try {
-      setError(null);
-      await uploadFiles(files, currentFolderId);
-      // Reload nodes after upload
-      await loadUserNodes(currentFolderId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Upload failed";
-      setError(message);
-    }
-  }, [uploadFiles, loadUserNodes, currentFolderId]);
+      try {
+        setError(null);
+        await uploadFiles(files);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Upload failed";
+        setError(message);
+      }
+    },
+    [uploadFiles],
+  );
 
-  // File input handler for click-to-upload
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
     try {
       setError(null);
-      await uploadFiles(files, currentFolderId);
-      await loadUserNodes(currentFolderId);
+      await uploadFiles(files);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       setError(message);
     }
-    
-    // Reset input
-    e.target.value = '';
+
+    e.target.value = "";
   };
 
-  const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return;
-    
+  const handleCreateFolder = async (data: CreateFolderFormData) => {
     try {
-      setIsCreatingFolder(true);
       setError(null);
-      await createFolder(newFolderName.trim(), currentFolderId);
-      setNewFolderName("");
+      await createFolderMutation.mutateAsync(data.folderName);
+      folderForm.reset();
       setIsCreateFolderOpen(false);
-      await loadUserNodes(currentFolderId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create folder";
+      const message =
+        err instanceof Error ? err.message : "Failed to create folder";
       setError(message);
-    } finally {
-      setIsCreatingFolder(false);
     }
   };
 
-  if (isLoading) {
+  if (!userId) {
     return (
       <div className="min-h-screen arctic-bg flex items-center justify-center">
         <motion.div
@@ -187,20 +198,25 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl ice-glass-deep flex items-center justify-center border border-white/10">
-              <Shield className="w-5 h-5 text-blue-300/70" strokeWidth={1.5} />
+              <Shield
+                className="w-5 h-5 text-blue-300/70"
+                strokeWidth={1.5}
+              />
             </div>
             <div>
-              <h1 className="text-lg font-light tracking-wider text-white/90">CITADELLE</h1>
-              <p className="text-xs text-blue-200/40 tracking-wider">Secure File Storage</p>
+              <h1 className="text-lg font-light tracking-wider text-white/90">
+                CITADELLE
+              </h1>
+              <p className="text-xs text-blue-200/40 tracking-wider">
+                Secure File Storage
+              </p>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            {userId && (
-              <span className="text-xs text-blue-200/50 tracking-wider px-3 py-1 rounded-full bg-white/5">
-                User: {userId.slice(0, 8)}...
-              </span>
-            )}
+            <span className="text-xs text-blue-200/50 tracking-wider px-3 py-1 rounded-full bg-white/5">
+              User: {userId.slice(0, 8)}...
+            </span>
             <Button
               variant="ghost"
               size="sm"
@@ -216,14 +232,16 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {error && (
+        {(error || nodesQuery.error) && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3"
           >
             <AlertCircle className="w-5 h-5 text-red-400" />
-            <span className="text-sm text-red-200">{error}</span>
+            <span className="text-sm text-red-200">
+              {error || nodesQuery.error?.message}
+            </span>
             <button
               onClick={() => setError(null)}
               className="ml-auto text-red-400 hover:text-red-300"
@@ -237,9 +255,13 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 mb-6 text-sm">
           {pathStack.map((level, index) => (
             <span key={level.id} className="flex items-center gap-2">
-              <span 
+              <span
                 onClick={() => navigateToPath(index)}
-                className={index === pathStack.length - 1 ? "text-white/80" : "text-blue-200/50 cursor-pointer hover:text-blue-200/80"}
+                className={
+                  index === pathStack.length - 1
+                    ? "text-white/80"
+                    : "text-blue-200/50 cursor-pointer hover:text-blue-200/80"
+                }
               >
                 {level.name}
               </span>
@@ -252,34 +274,35 @@ export default function DashboardPage() {
 
         {/* Toolbar */}
         <div className="flex items-center gap-4 mb-8">
-          <Button 
-            className="btn-ice text-white/90" 
-            disabled={isUploading || isCreatingFolder}
+          <Button
+            className="btn-ice text-white/90"
+            disabled={isUploading || createFolderMutation.isPending}
             onClick={() => setIsCreateFolderOpen(true)}
           >
             <FolderPlus className="w-4 h-4 mr-2" />
             New Folder
           </Button>
-          <div className="relative">
-            <input
-              type="file"
-              multiple
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              onChange={handleFileSelect}
-              disabled={isUploading}
-              id="file-upload"
-            />
-            <label htmlFor="file-upload">
-              <Button className="btn-ice" variant="outline" disabled={isUploading}>
-                {isUploading ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Upload className="w-4 h-4 mr-2" />
-                )}
-                {isUploading ? "Uploading..." : "Upload File"}
-              </Button>
-            </label>
-          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+            disabled={isUploading}
+          />
+          <Button
+            className="btn-ice"
+            variant="outline"
+            disabled={isUploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {isUploading ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Upload className="w-4 h-4 mr-2" />
+            )}
+            {isUploading ? "Uploading..." : "Upload File"}
+          </Button>
         </div>
 
         {/* Drop Zone */}
@@ -289,15 +312,22 @@ export default function DashboardPage() {
           onDragOver={handleDragOver}
           onDrop={handleDrop}
           className={`ice-glass-frost rounded-2xl p-8 transition-all duration-300 ${
-            isDragging 
-              ? "border-2 border-dashed border-blue-400/50 bg-blue-500/10" 
+            isDragging
+              ? "border-2 border-dashed border-blue-400/50 bg-blue-500/10"
               : ""
           }`}
         >
-          {nodes.length === 0 && !isDragging && !isUploading ? (
+          {nodesQuery.isLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-8 h-8 text-blue-300/60 animate-spin" />
+            </div>
+          ) : nodes.length === 0 && !isDragging && !isUploading ? (
             <div className="text-center py-16">
               <div className="w-20 h-20 rounded-full bg-white/[0.03] flex items-center justify-center mx-auto mb-6">
-                <Upload className="w-10 h-10 text-blue-200/40" strokeWidth={1} />
+                <Upload
+                  className="w-10 h-10 text-blue-200/40"
+                  strokeWidth={1}
+                />
               </div>
               <h3 className="text-lg text-white/60 mb-2">Drop files here</h3>
               <p className="text-sm text-blue-200/40">
@@ -314,27 +344,67 @@ export default function DashboardPage() {
                 <motion.div
                   key={node.Id}
                   whileHover={{ scale: 1.02 }}
-                  onClick={() => {
-                    console.log('Clicked node:', node);
+                  onClick={async () => {
                     if (node.IsDirectory) {
-                      console.log('Navigating to folder:', node.Id, node.B64EncryptedPath);
-                      navigateToFolder(node.Id, node.B64EncryptedPath);
+                      const name =
+                        decryptedNames[node.Id] ?? node.B64EncryptedPath;
+                      navigateToFolder(node.Id, name);
+                    } else {
+                      try {
+                        setError(null);
+                        await downloadFile.mutateAsync(node.Id);
+                      } catch (err) {
+                        setError(
+                          err instanceof Error
+                            ? err.message
+                            : "Download failed",
+                        );
+                      }
                     }
                   }}
-                  className="p-4 rounded-xl bg-white/[0.03] border border-white/5 hover:border-white/10 cursor-pointer transition-colors"
+                  className={`p-4 rounded-xl bg-white/[0.03] border border-white/5 hover:border-white/10 cursor-pointer transition-colors relative group ${
+                    downloadFile.isPending &&
+                    downloadFile.variables === node.Id
+                      ? "opacity-60 pointer-events-none"
+                      : ""
+                  }`}
                 >
+                  {/* Delete button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setNodeToDelete(node);
+                    }}
+                    className="absolute top-2 right-2 p-1 rounded-md text-red-400/0 group-hover:text-red-400/60 hover:!text-red-400 hover:bg-red-500/10 transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" strokeWidth={2} />
+                  </button>
+
                   {node.IsDirectory ? (
-                    <Folder className="w-12 h-12 text-blue-300/60 mb-3" strokeWidth={1.5} />
+                    <Folder
+                      className="w-12 h-12 text-blue-300/60 mb-3"
+                      strokeWidth={1.5}
+                    />
                   ) : (
-                    <File className="w-12 h-12 text-blue-200/40 mb-3" strokeWidth={1.5} />
+                    <div className="relative mb-3">
+                      <File
+                        className="w-12 h-12 text-blue-200/40"
+                        strokeWidth={1.5}
+                      />
+                      {downloadFile.isPending &&
+                      downloadFile.variables === node.Id ? (
+                        <Loader2 className="w-4 h-4 text-blue-300 animate-spin absolute bottom-0 right-0" />
+                      ) : (
+                        <Download className="w-4 h-4 text-blue-300/0 group-hover:text-blue-300/60 transition-colors absolute bottom-0 right-0" />
+                      )}
+                    </div>
                   )}
                   <p className="text-sm text-white/70 truncate">
-                    {node.B64EncryptedPath}
+                    {decryptedNames[node.Id] ?? "..."}
                   </p>
                 </motion.div>
               ))}
-              
-              {/* Drop indicator */}
+
               {isDragging && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -342,7 +412,9 @@ export default function DashboardPage() {
                   className="col-span-full border-2 border-dashed border-blue-400/50 rounded-xl p-8 text-center bg-blue-500/10"
                 >
                   <Upload className="w-8 h-8 text-blue-300/60 mx-auto mb-2" />
-                  <p className="text-blue-200/60">Drop files here to upload</p>
+                  <p className="text-blue-200/60">
+                    Drop files here to upload
+                  </p>
                 </motion.div>
               )}
             </div>
@@ -359,7 +431,9 @@ export default function DashboardPage() {
               className="mt-6 ice-glass-frost rounded-xl p-4"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium text-white/80">Upload Progress</h3>
+                <h3 className="text-sm font-medium text-white/80">
+                  Upload Progress
+                </h3>
                 <button
                   onClick={clearUploadProgress}
                   className="text-xs text-blue-200/50 hover:text-blue-200/80"
@@ -376,30 +450,37 @@ export default function DashboardPage() {
                         <span className="text-white/70 truncate max-w-[200px]">
                           {progress.fileName}
                         </span>
-                        {progress.status === 'completed' && (
+                        {progress.status === "completed" && (
                           <CheckCircle className="w-3 h-3 text-green-400" />
                         )}
-                        {progress.status === 'error' && (
+                        {progress.status === "error" && (
                           <AlertCircle className="w-3 h-3 text-red-400" />
                         )}
                       </div>
-                      <span className={
-                        progress.status === 'error' ? 'text-red-400' :
-                        progress.status === 'completed' ? 'text-green-400' :
-                        'text-blue-200/50'
-                      }>
-                        {progress.status === 'encrypting' && 'Encrypting...'}
-                        {progress.status === 'uploading' && 'Uploading...'}
-                        {progress.status === 'completed' && 'Done'}
-                        {progress.status === 'error' && progress.error || 'Error'}
+                      <span
+                        className={
+                          progress.status === "error"
+                            ? "text-red-400"
+                            : progress.status === "completed"
+                              ? "text-green-400"
+                              : "text-blue-200/50"
+                        }
+                      >
+                        {progress.status === "encrypting" && "Encrypting..."}
+                        {progress.status === "uploading" && "Uploading..."}
+                        {progress.status === "completed" && "Done"}
+                        {progress.status === "error" &&
+                          (progress.error || "Error")}
                       </span>
                     </div>
                     <div className="h-1 bg-white/10 rounded-full overflow-hidden">
                       <motion.div
                         className={`h-full rounded-full ${
-                          progress.status === 'error' ? 'bg-red-500' :
-                          progress.status === 'completed' ? 'bg-green-500' :
-                          'bg-blue-400'
+                          progress.status === "error"
+                            ? "bg-red-500"
+                            : progress.status === "completed"
+                              ? "bg-green-500"
+                              : "bg-blue-400"
                         }`}
                         initial={{ width: 0 }}
                         animate={{ width: `${progress.progress}%` }}
@@ -447,45 +528,139 @@ export default function DashboardPage() {
                   <h3 className="text-lg font-medium text-white/90 mb-4">
                     Create New Folder
                   </h3>
-                  <Input
-                    placeholder="Folder name"
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newFolderName.trim()) {
-                        handleCreateFolder();
-                      }
-                      if (e.key === 'Escape') {
-                        setIsCreateFolderOpen(false);
-                      }
-                    }}
-                    autoFocus
-                    className="bg-white/5 border-white/10 text-white placeholder:text-white/30"
-                  />
-                  <div className="flex justify-end gap-2 mt-4">
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        setNewFolderName("");
-                        setIsCreateFolderOpen(false);
+                  <form onSubmit={folderForm.handleSubmit(handleCreateFolder)}>
+                    <Input
+                      placeholder="Folder name"
+                      autoFocus
+                      className="bg-white/5 border-white/10 text-white placeholder:text-white/30"
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setIsCreateFolderOpen(false);
+                        }
                       }}
-                      disabled={isCreatingFolder}
+                      {...folderForm.register("folderName")}
+                    />
+                    {folderForm.formState.errors.folderName && (
+                      <p className="text-[10px] text-red-300 ml-1 mt-1 tracking-wide">
+                        {folderForm.formState.errors.folderName.message}
+                      </p>
+                    )}
+                    <div className="flex justify-end gap-2 mt-4">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          folderForm.reset();
+                          setIsCreateFolderOpen(false);
+                        }}
+                        disabled={createFolderMutation.isPending}
+                        className="text-blue-200/60 hover:text-blue-200"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={createFolderMutation.isPending}
+                        className="btn-ice text-white/90"
+                      >
+                        {createFolderMutation.isPending ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          "Create"
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </Card>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        {/* Delete Confirmation Modal */}
+        <AnimatePresence>
+          {nodeToDelete && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+              onClick={() => setNodeToDelete(null)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.2 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Card className="ice-glass-deep p-6 w-96 border border-white/10">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center">
+                      <Trash2 className="w-5 h-5 text-red-400" strokeWidth={1.5} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-medium text-white/90">
+                        Delete {nodeToDelete.IsDirectory ? "folder" : "file"}
+                      </h3>
+                      <p className="text-xs text-blue-200/40">
+                        This action cannot be undone
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-blue-200/60 mb-1">
+                    Are you sure you want to delete{" "}
+                    <span className="text-white/80 font-medium">
+                      {decryptedNames[nodeToDelete.Id] ?? "this item"}
+                    </span>
+                    ?
+                  </p>
+                  {nodeToDelete.IsDirectory && (
+                    <p className="text-xs text-red-300/60">
+                      All files and subfolders inside will also be deleted.
+                    </p>
+                  )}
+                  <div className="flex justify-end gap-2 mt-6">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setNodeToDelete(null)}
+                      disabled={deleteNode.isPending}
                       className="text-blue-200/60 hover:text-blue-200"
                     >
                       Cancel
                     </Button>
                     <Button
-                      onClick={handleCreateFolder}
-                      disabled={!newFolderName.trim() || isCreatingFolder}
-                      className="btn-ice text-white/90"
+                      type="button"
+                      disabled={deleteNode.isPending}
+                      className="bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30"
+                      onClick={async () => {
+                        try {
+                          setError(null);
+                          await deleteNode.mutateAsync(nodeToDelete.Id);
+                          setNodeToDelete(null);
+                        } catch (err) {
+                          setError(
+                            err instanceof Error
+                              ? err.message
+                              : "Delete failed",
+                          );
+                          setNodeToDelete(null);
+                        }
+                      }}
                     >
-                      {isCreatingFolder ? (
+                      {deleteNode.isPending ? (
                         <>
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Creating...
+                          Deleting...
                         </>
                       ) : (
-                        'Create'
+                        <>
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete
+                        </>
                       )}
                     </Button>
                   </div>
