@@ -53,10 +53,8 @@ export function useAuth() {
     ...signInApi,
     mutateAsync: async (data: SignInFormData): Promise<AuthResult> => {
       // Persist remember-me preference before storing credentials
-      if (data.rememberMe) {
-        setRememberMe(true);
-        setRememberMeState(true);
-      }
+      setRememberMe(data.rememberMe);
+      setRememberMeState(data.rememberMe);
 
       const result = await signInApi.mutateAsync(data);
 
