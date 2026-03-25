@@ -344,64 +344,67 @@ export default function DashboardPage() {
                 <motion.div
                   key={node.Id}
                   whileHover={{ scale: 1.02 }}
-                  onClick={async () => {
-                    if (node.IsDirectory) {
-                      const name =
-                        decryptedNames[node.Id] ?? node.B64EncryptedPath;
-                      navigateToFolder(node.Id, name);
-                    } else {
-                      try {
-                        setError(null);
-                        await downloadFile.mutateAsync(node.Id);
-                      } catch (err) {
-                        setError(
-                          err instanceof Error
-                            ? err.message
-                            : "Download failed",
-                        );
-                      }
-                    }
-                  }}
-                  className={`p-4 rounded-xl bg-white/[0.03] border border-white/5 hover:border-white/10 cursor-pointer transition-colors relative group ${
+                  className={`p-4 rounded-xl bg-white/[0.03] border border-white/5 hover:border-white/10 transition-colors relative group ${
                     downloadFile.isPending &&
                     downloadFile.variables === node.Id
                       ? "opacity-60 pointer-events-none"
                       : ""
                   }`}
                 >
-                  {/* Delete button */}
+                  {/* Delete button — z-index above the clickable area */}
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setNodeToDelete(node);
-                    }}
-                    className="absolute top-2 right-2 p-1 rounded-md text-red-400/0 group-hover:text-red-400/60 hover:!text-red-400 hover:bg-red-500/10 transition-all"
+                    type="button"
+                    onClick={() => setNodeToDelete(node)}
+                    className="absolute top-2 right-2 z-10 p-1.5 rounded-md text-red-400/0 group-hover:text-red-400/60 hover:!text-red-400 hover:!bg-red-500/10 transition-all"
                   >
                     <Trash2 className="w-3.5 h-3.5" strokeWidth={2} />
                   </button>
 
-                  {node.IsDirectory ? (
-                    <Folder
-                      className="w-12 h-12 text-blue-300/60 mb-3"
-                      strokeWidth={1.5}
-                    />
-                  ) : (
-                    <div className="relative mb-3">
-                      <File
-                        className="w-12 h-12 text-blue-200/40"
+                  {/* Clickable area for navigation / download */}
+                  <div
+                    className="cursor-pointer"
+                    onClick={async () => {
+                      if (node.IsDirectory) {
+                        const name =
+                          decryptedNames[node.Id] ?? node.B64EncryptedPath;
+                        navigateToFolder(node.Id, name);
+                      } else {
+                        try {
+                          setError(null);
+                          await downloadFile.mutateAsync(node.Id);
+                        } catch (err) {
+                          setError(
+                            err instanceof Error
+                              ? err.message
+                              : "Download failed",
+                          );
+                        }
+                      }
+                    }}
+                  >
+                    {node.IsDirectory ? (
+                      <Folder
+                        className="w-12 h-12 text-blue-300/60 mb-3"
                         strokeWidth={1.5}
                       />
-                      {downloadFile.isPending &&
-                      downloadFile.variables === node.Id ? (
-                        <Loader2 className="w-4 h-4 text-blue-300 animate-spin absolute bottom-0 right-0" />
-                      ) : (
-                        <Download className="w-4 h-4 text-blue-300/0 group-hover:text-blue-300/60 transition-colors absolute bottom-0 right-0" />
-                      )}
-                    </div>
-                  )}
-                  <p className="text-sm text-white/70 truncate">
-                    {decryptedNames[node.Id] ?? "..."}
-                  </p>
+                    ) : (
+                      <div className="relative mb-3">
+                        <File
+                          className="w-12 h-12 text-blue-200/40"
+                          strokeWidth={1.5}
+                        />
+                        {downloadFile.isPending &&
+                        downloadFile.variables === node.Id ? (
+                          <Loader2 className="w-4 h-4 text-blue-300 animate-spin absolute bottom-0 right-0" />
+                        ) : (
+                          <Download className="w-4 h-4 text-blue-300/0 group-hover:text-blue-300/60 transition-colors absolute bottom-0 right-0" />
+                        )}
+                      </div>
+                    )}
+                    <p className="text-sm text-white/70 truncate">
+                      {decryptedNames[node.Id] ?? "..."}
+                    </p>
+                  </div>
                 </motion.div>
               ))}
 
