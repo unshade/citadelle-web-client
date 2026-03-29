@@ -1,144 +1,64 @@
 "use client";
 
-import { useState } from 'react';
-import { nodeApi, Node } from '@/lib/api';
-import { encryptFile, encryptPath, EncryptedFile, getStoredCredentials } from '@/lib/crypto';
+/**
+ * File management hook — wraps api/nodes.ts mutations with upload progress tracking.
+ * Re-exports useDirectoryNodes and useCreateFolder directly from the API layer.
+ */
+import { useState, useCallback } from "react";
+import { useUploadFiles as useUploadFilesMutation } from "@/api/nodes";
+import type { Node } from "@/lib/schemas";
 
-interface UploadProgress {
+type UploadProgress = {
   fileName: string;
   progress: number;
-  status: 'encrypting' | 'uploading' | 'completed' | 'error';
+  status: "encrypting" | "uploading" | "completed" | "error";
   error?: string;
-}
+};
 
-interface UseFilesReturn {
-  uploadFiles: (files: File[], parentUuid: string) => Promise<void>;
-  createFolder: (folderName: string, parentUuid: string) => Promise<void>;
-  uploadProgress: UploadProgress[];
-  isUploading: boolean;
-  clearUploadProgress: () => void;
-  loadNodes: (parentUuid: string) => Promise<Node[]>;
-}
-
-export function useFiles(): UseFilesReturn {
+/** Wraps the raw upload mutation with UI progress state. */
+export function useUploadFiles(parentUuid: string) {
   const [uploadProgress, setUploadProgress] = useState<UploadProgress[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
+  const mutation = useUploadFilesMutation(parentUuid);
 
-  const clearUploadProgress = () => {
-    setUploadProgress([]);
-  };
-
-  const loadNodes = async (parentUuid: string): Promise<Node[]> => {
-    try {
-      const response = await nodeApi.indexDirectory(parentUuid);
-      return response.data.nodes;
-    } catch (err) {
-      console.error('Failed to load nodes:', err);
-      throw err;
-    }
-  };
-
-  const uploadSingleFile = async (
-    file: File,
-    parentUuid: string,
-    index: number,
-    totalFiles: number
-  ): Promise<void> => {
-    const updateProgress = (progress: Partial<UploadProgress>) => {
-      setUploadProgress(prev => {
-        const newProgress = [...prev];
-        newProgress[index] = { ...newProgress[index], ...progress };
-        return newProgress;
+  const onProgress = useCallback(
+    (index: number, patch: { progress?: number; status?: string; error?: string }) => {
+      setUploadProgress((prev) => {
+        const next = [...prev];
+        next[index] = { ...next[index], ...patch } as UploadProgress;
+        return next;
       });
-    };
+    },
+    [],
+  );
 
-    updateProgress({ fileName: file.name, progress: 0, status: 'encrypting' });
+  const uploadFiles = useCallback(
+    async (files: File[]) => {
+      setUploadProgress(
+        files.map((file) => ({
+          fileName: file.name,
+          progress: 0,
+          status: "encrypting" as const,
+        })),
+      );
 
-    try {
-      // Encrypt the file
-      const encryptedFile = await encryptFile(file);
-      if (!encryptedFile) {
-        throw new Error('Failed to encrypt file');
+      try {
+        await mutation.mutateAsync({ files, onProgress });
+      } catch (err) {
+        // Individual file errors are already tracked via onProgress;
+        // re-throw so the caller can show a global error if needed
+        throw err;
       }
-
-      updateProgress({ progress: 30, status: 'uploading' });
-
-      // Create the node metadata
-      const path = parentUuid === 'root' ? `/${file.name}` : `/path/${file.name}`;
-      const encryptedPath = await encryptPath(path);
-
-      const createNodeResponse = await nodeApi.createNode({
-        b64EncryptedEncryptionKey: encryptedFile.encryptedKey,
-        b64EncryptionNonce: encryptedFile.nonce,
-        b64EncryptedName: encryptedFile.encryptedName,
-        b64EncryptedPath: encryptedPath,
-        isDirectory: false,
-        parentUuid,
-        version: 1,
-      });
-
-      updateProgress({ progress: 60 });
-
-      // Upload the encrypted file content
-      const blob = new Blob([encryptedFile.encryptedData]);
-      await nodeApi.saveNode(createNodeResponse.data.uuid, blob);
-
-      updateProgress({ progress: 100, status: 'completed' });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Upload failed';
-      updateProgress({ status: 'error', error: errorMessage });
-      throw err;
-    }
-  };
-
-  const uploadFiles = async (files: File[], parentUuid: string): Promise<void> => {
-    setIsUploading(true);
-    setUploadProgress(files.map(file => ({
-      fileName: file.name,
-      progress: 0,
-      status: 'encrypting',
-    })));
-
-    try {
-      // Upload files sequentially to avoid overwhelming the server
-      for (let i = 0; i < files.length; i++) {
-        await uploadSingleFile(files[i], parentUuid, i, files.length);
-      }
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const createFolder = async (folderName: string, parentUuid: string): Promise<void> => {
-    const credentials = getStoredCredentials();
-    if (!credentials) {
-      throw new Error('Not authenticated');
-    }
-
-    // Build the path
-    const path = parentUuid === 'root' ? `/${folderName}` : `/path/${folderName}`;
-    const encryptedPath = await encryptPath(path);
-
-    // Encrypt the folder name
-    const encryptedName = await encryptPath(folderName);
-
-    await nodeApi.createNode({
-      b64EncryptedEncryptionKey: '', // Directories don't have file encryption keys
-      b64EncryptionNonce: '', // Directories don't have file nonces
-      b64EncryptedName: encryptedName,
-      b64EncryptedPath: encryptedPath,
-      isDirectory: true,
-      parentUuid,
-      version: 1,
-    });
-  };
+    },
+    [mutation, onProgress],
+  );
 
   return {
     uploadFiles,
-    createFolder,
+    isUploading: mutation.isPending,
     uploadProgress,
-    isUploading,
-    clearUploadProgress,
-    loadNodes,
+    clearUploadProgress: () => setUploadProgress([]),
   };
 }
+
+export { useDirectoryNodes, useCreateFolder, useDownloadFile, useDeleteNode } from "@/api/nodes";
+export type { UploadProgress, Node };

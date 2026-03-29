@@ -1,26 +1,54 @@
-import axios from 'axios';
-import { getAuthToken } from './crypto';
+/**
+ * HTTP client for the Citadelle backend API.
+ *
+ * Every response is validated at runtime with Zod schemas (see schemas.ts),
+ * so a backend contract change is caught immediately instead of causing
+ * silent data corruption downstream.
+ *
+ * Auth: the JWT token is injected automatically via a request interceptor
+ * (reads from lib/storage.ts).
+ */
+import axios from "axios";
+import { getAuthToken } from "./storage";
+import {
+  signUpResponseSchema,
+  challengeResponseSchema,
+  verifyResponseSchema,
+  getUserResponseSchema,
+  createNodeResponseSchema,
+  indexNodesResponseSchema,
+  messageResponseSchema,
+} from "./schemas";
+import type {
+  SignUpRequest,
+  SignUpResponse,
+  ChallengeResponse,
+  VerifyRequest,
+  VerifyResponse,
+  GetUserResponse,
+  CreateNodeRequest,
+  CreateNodeResponse,
+  IndexNodesResponse,
+  MessageResponse,
+} from "./schemas";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
-// Create axios instance
 const api = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  // Ensure we get raw JSON, not transformed
-  transformResponse: [(data) => {
-    // Try to parse as JSON
-    try {
-      return JSON.parse(data);
-    } catch {
-      return data;
-    }
-  }],
+  headers: { "Content-Type": "application/json" },
+  transformResponse: [
+    (data) => {
+      try {
+        return JSON.parse(data);
+      } catch {
+        return data;
+      }
+    },
+  ],
 });
 
-// Add auth token to requests
+// Inject Bearer token on every request when authenticated
 api.interceptors.request.use((config) => {
   const token = getAuthToken();
   if (token) {
@@ -29,172 +57,107 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Log responses for debugging
-api.interceptors.response.use(
-  (response) => {
-    console.log('API Response:', response.config.url, response.data);
-    return response;
-  },
-  (error) => {
-    console.error('API Error:', error.config?.url, error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
+// ── Auth API ────────────────────────────────────────────────────────────
 
-// Types
-export interface SignUpRequest {
-  b64Salt: string;
-  b64EncryptedMasterKey: string;
-  b64EncryptedChallenge: string;
-  clearChallenge: string;
-}
-
-export interface SignUpResponse {
-  data: {
-    uuid: string;
-  };
-  message: string;
-}
-
-export interface ChallengeResponse {
-  data: {
-    b64EncryptedChallenge: string;
-  };
-  message: string;
-}
-
-export interface VerifyRequest {
-  userUuid: string;
-  clearChallenge: string;
-}
-
-export interface VerifyResponse {
-  data: {
-    token: string;
-  };
-  message: string;
-}
-
-export interface User {
-  Id: string;
-  Salt: string;
-  EncryptedMasterKey: string;
-  EncryptedChallenge: string;
-  ClearChallenge: string;
-}
-
-// Node types
-export interface CreateNodeRequest {
-  b64EncryptedEncryptionKey: string;
-  b64EncryptionNonce: string;
-  b64EncryptedName: string;
-  b64EncryptedPath: string;
-  isDirectory: boolean;
-  parentUuid: string;
-  version: number;
-}
-
-export interface CreateNodeResponse {
-  data: {
-    uuid: string;
-  };
-  message: string;
-}
-
-export interface Node {
-  Id: string;
-  Version: number;
-  EncryptedName: string;
-  EncryptedKey: string;
-  Nonce: string;
-  B64EncryptedPath: string;
-  IsDirectory: boolean;
-  ParentId: string;
-}
-
-export interface IndexNodesResponse {
-  data: {
-    nodes: Node[];
-  };
-  message: string;
-}
-
-// API Functions
 export const authApi = {
-  // Sign up - create new user
   async signUp(data: SignUpRequest): Promise<SignUpResponse> {
-    const response = await api.post<SignUpResponse>('/users/', data);
-    return response.data;
+    const response = await api.post("/users/", data);
+    return signUpResponseSchema.parse(response.data);
   },
 
-  // Get encrypted challenge for authentication
   async getChallenge(userId: string): Promise<ChallengeResponse> {
-    const response = await api.get<ChallengeResponse>(`/auth/challenge/${userId}`);
-    return response.data;
+    const response = await api.get(`/auth/challenge/${userId}`);
+    return challengeResponseSchema.parse(response.data);
   },
 
-  // Verify challenge and get JWT token
   async verifyChallenge(data: VerifyRequest): Promise<VerifyResponse> {
-    const response = await api.post<VerifyResponse>('/auth/verify', data);
-    return response.data;
+    const response = await api.post("/auth/verify", data);
+    return verifyResponseSchema.parse(response.data);
   },
 
-  // Get user data (for retrieving salt and encrypted master key)
-  async getUser(userId: string): Promise<{ data: User; message: string }> {
-    const response = await api.get<{ data: User; message: string }>(`/users/${userId}`);
-    return response.data;
+  async getUser(userId: string): Promise<GetUserResponse> {
+    const response = await api.get(`/users/${userId}`);
+    return getUserResponseSchema.parse(response.data);
   },
 };
 
-// Node API Functions
+// ── Node API ────────────────────────────────────────────────────────────
+// All node content is encrypted client-side; the server only stores blobs.
+
+export type DownloadNodeResult = {
+  data: Blob;
+  // Sealed node key — nonce and ciphertext in separate fields
+  keyNonce: string;
+  encryptedKey: string;
+  // Content nonce for the raw binary blob
+  contentNonce: string;
+  // Sealed filename — nonce and ciphertext in separate fields
+  nameNonce: string;
+  encryptedName: string;
+};
+
 export const nodeApi = {
-  // Create a new node (file or directory)
   async createNode(data: CreateNodeRequest): Promise<CreateNodeResponse> {
-    const response = await api.post<CreateNodeResponse>('/nodes/', data);
-    return response.data;
+    const response = await api.post("/nodes/", data);
+    return createNodeResponseSchema.parse(response.data);
   },
 
-  // Save file content for a node
-  async saveNode(nodeUuid: string, encryptedFile: Blob): Promise<{ message: string }> {
+  async saveNode(nodeUuid: string, encryptedFile: Blob): Promise<MessageResponse> {
     const formData = new FormData();
-    formData.append('encryptedFile', encryptedFile);
-    const response = await api.post<{ message: string }>(`/nodes/${nodeUuid}`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+    formData.append("encryptedFile", encryptedFile);
+    const response = await api.post(`/nodes/${nodeUuid}`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
     });
-    return response.data;
+    return messageResponseSchema.parse(response.data);
   },
 
-  // Get children nodes in a directory
   async indexDirectory(nodeUuid: string): Promise<IndexNodesResponse> {
-    const response = await api.get<IndexNodesResponse>(`/nodes/${nodeUuid}`);
-    return response.data;
+    const response = await api.get(`/nodes/${nodeUuid}`);
+    return indexNodesResponseSchema.parse(response.data);
   },
 
-  // Download a file
-  async downloadNode(nodeUuid: string): Promise<{
-    data: Blob;
-    encryptedKey: string;
-    nonce: string;
-    encryptedName: string;
-  }> {
-    const response = await api.get<Blob>(`/nodes/${nodeUuid}/download`, {
-      responseType: 'blob',
+  async downloadNode(nodeUuid: string): Promise<DownloadNodeResult> {
+    // Use a fresh axios instance — the default one has a transformResponse
+    // that tries to JSON.parse, which corrupts binary data.
+    const response = await axios.get(`${API_URL}/nodes/${nodeUuid}/download`, {
+      responseType: "blob",
+      headers: { Authorization: `Bearer ${getAuthToken()}` },
     });
-    
+
+    const keyNonce = response.headers["x-key-nonce"];
+    const encryptedKey = response.headers["x-encrypted-key"];
+    const contentNonce = response.headers["x-content-nonce"];
+    const nameNonce = response.headers["x-name-nonce"];
+    const encryptedName = response.headers["x-encrypted-name"];
+
+    const missing = [
+      !keyNonce && "X-Key-Nonce",
+      !encryptedKey && "X-Encrypted-Key",
+      !contentNonce && "X-Content-Nonce",
+      !nameNonce && "X-Name-Nonce",
+      !encryptedName && "X-Encrypted-Name",
+    ].filter(Boolean);
+
+    if (missing.length > 0) {
+      throw new Error(
+        `Download failed: missing response headers: ${missing.join(", ")}. ` +
+          "Check that the server sets Access-Control-Expose-Headers for these headers.",
+      );
+    }
+
     return {
       data: response.data,
-      encryptedKey: response.headers['x-encrypted-key'] as string,
-      nonce: response.headers['x-encryption-nonce'] as string,
-      encryptedName: response.headers['x-encrypted-name'] as string,
+      keyNonce: keyNonce as string,
+      encryptedKey: encryptedKey as string,
+      contentNonce: contentNonce as string,
+      nameNonce: nameNonce as string,
+      encryptedName: encryptedName as string,
     };
   },
 
-  // Delete a node
-  async deleteNode(nodeUuid: string): Promise<{ message: string }> {
-    const response = await api.delete<{ message: string }>(`/nodes/${nodeUuid}`);
-    return response.data;
+  async deleteNode(nodeUuid: string): Promise<MessageResponse> {
+    const response = await api.delete(`/nodes/${nodeUuid}`);
+    return messageResponseSchema.parse(response.data);
   },
 };
 
