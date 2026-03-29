@@ -103,6 +103,31 @@ export function useDownloadFile() {
   });
 }
 
+/**
+ * Mutation: download and decrypt a file, then expose it as an object URL
+ * for in-browser preview. The caller is responsible for revoking the URL
+ * (call URL.revokeObjectURL) when the preview is closed.
+ */
+export function useOpenFile() {
+  return useMutation({
+    mutationFn: async (nodeId: string): Promise<{ objectUrl: string; fileName: string }> => {
+      const { data, keyNonce, encryptedKey, contentNonce, nameNonce, encryptedName } =
+        await nodeApi.downloadNode(nodeId);
+
+      const fileName = await decryptString({ nonce: nameNonce, ciphertext: encryptedName });
+      const encryptedBuffer = await data.arrayBuffer();
+      const decryptedBuffer = await decryptFile(
+        encryptedBuffer,
+        { nonce: keyNonce, ciphertext: encryptedKey },
+        contentNonce,
+      );
+
+      const objectUrl = URL.createObjectURL(new Blob([decryptedBuffer]));
+      return { objectUrl, fileName };
+    },
+  });
+}
+
 /** Mutation: delete a node (file or directory, recursive), then invalidate the listing. */
 export function useDeleteNode(parentUuid: string) {
   const queryClient = useQueryClient();

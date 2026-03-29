@@ -20,12 +20,13 @@ import { getStoredCredentials, clearCredentials, clearAuthToken } from "@/lib/st
 import { decryptString } from "@/lib/crypto";
 import { createFolderFormSchema } from "@/lib/schemas";
 import type { CreateFolderFormData, Node } from "@/lib/schemas";
-import { useDirectoryNodes, useUploadFiles, useCreateFolder, useDownloadFile, useDeleteNode } from "@/hooks/useFiles";
+import { useDirectoryNodes, useUploadFiles, useCreateFolder, useDownloadFile, useDeleteNode, useOpenFile } from "@/hooks/useFiles";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { FileBrowser } from "@/components/dashboard/file-browser";
 import { UploadProgress } from "@/components/dashboard/upload-progress";
 import { CreateFolderModal } from "@/components/dashboard/create-folder-modal";
 import { DeleteConfirmModal } from "@/components/dashboard/delete-confirm-modal";
+import { FilePreviewModal } from "@/components/dashboard/file-preview-modal";
 
 type PathLevel = {
   id: string;
@@ -66,6 +67,7 @@ export default function DashboardPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+  const [preview, setPreview] = useState<{ objectUrl: string; fileName: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
 
@@ -80,6 +82,7 @@ export default function DashboardPage() {
   const createFolderMutation = useCreateFolder(currentFolderId);
   const deleteNode = useDeleteNode(currentFolderId);
   const downloadFile = useDownloadFile();
+  const openFile = useOpenFile();
   const [nodeToDelete, setNodeToDelete] = useState<Node | null>(null);
 
   const folderForm = useForm<CreateFolderFormData>({
@@ -183,6 +186,21 @@ export default function DashboardPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Download failed");
     }
+  };
+
+  const handleOpen = async (nodeId: string) => {
+    try {
+      setError(null);
+      const result = await openFile.mutateAsync(nodeId);
+      setPreview(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open file");
+    }
+  };
+
+  const handleClosePreview = () => {
+    if (preview) URL.revokeObjectURL(preview.objectUrl);
+    setPreview(null);
   };
 
   const handleDeleteConfirm = async () => {
@@ -291,7 +309,10 @@ export default function DashboardPage() {
           isUploading={isUploading}
           downloadingNodeId={downloadFile.variables}
           isDownloading={downloadFile.isPending}
+          openingNodeId={openFile.variables}
+          isOpening={openFile.isPending}
           onNavigateFolder={navigateToFolder}
+          onOpen={handleOpen}
           onDownload={handleDownload}
           onDelete={setNodeToDelete}
           onDragEnter={handleDragEnter}
@@ -322,6 +343,16 @@ export default function DashboardPage() {
             All files are encrypted on your device before being uploaded
           </p>
         </div>
+
+        <AnimatePresence>
+          {preview && (
+            <FilePreviewModal
+              objectUrl={preview.objectUrl}
+              filename={preview.fileName}
+              onClose={handleClosePreview}
+            />
+          )}
+        </AnimatePresence>
 
         <AnimatePresence>
           {isCreateFolderOpen && (
