@@ -18,6 +18,7 @@ import {
   isAuthenticated,
   getRememberMe,
 } from "@/lib/storage";
+import { invalidateMasterKeyCache } from "@/lib/crypto";
 import type { SignInFormData, SignUpFormData } from "@/lib/schemas";
 
 type AuthResult = { success: boolean; userId?: string; error?: string };
@@ -67,6 +68,7 @@ export function useAuth() {
         userId: result.userId,
         password: result.password,
         salt: result.salt,
+        masterKeyNonce: result.masterKeyNonce,
         encryptedMasterKey: result.encryptedMasterKey,
       });
 
@@ -75,6 +77,7 @@ export function useAuth() {
   };
 
   const logout = () => {
+    invalidateMasterKeyCache();
     clearCredentials();
     clearAuthToken();
     clearStoredUserId();

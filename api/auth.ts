@@ -13,6 +13,7 @@ type SignUpResult = {
   userId: string;
   password: string;
   salt: string;
+  masterKeyNonce: string;
   encryptedMasterKey: string;
 };
 
@@ -24,7 +25,9 @@ export function useSignUpMutation() {
 
       const response = await authApi.signUp({
         b64Salt: encrypted.b64Salt,
+        b64MasterKeyNonce: encrypted.b64MasterKeyNonce,
         b64EncryptedMasterKey: encrypted.b64EncryptedMasterKey,
+        b64ChallengeNonce: encrypted.b64ChallengeNonce,
         b64EncryptedChallenge: encrypted.b64EncryptedChallenge,
         clearChallenge: encrypted.clearChallenge,
       });
@@ -33,6 +36,7 @@ export function useSignUpMutation() {
         userId: response.data.uuid,
         password: data.password,
         salt: encrypted.b64Salt,
+        masterKeyNonce: encrypted.b64MasterKeyNonce,
         encryptedMasterKey: encrypted.b64EncryptedMasterKey,
       };
     },
@@ -44,13 +48,14 @@ type SignInResult = {
   userId: string;
   password: string;
   salt: string;
+  masterKeyNonce: string;
   encryptedMasterKey: string;
 };
 
 /**
  * Challenge-response sign-in:
- * 1. Fetch user data (salt, encrypted master key)
- * 2. Fetch encrypted challenge
+ * 1. Fetch user data (salt, master key nonce, encrypted master key)
+ * 2. Fetch encrypted challenge (nonce + ciphertext)
  * 3. Decrypt challenge client-side (proves we know the password)
  * 4. Send cleartext challenge back → server returns JWT
  */
@@ -61,12 +66,13 @@ export function useSignInMutation() {
       const user = userResponse.data;
 
       const challengeResponse = await authApi.getChallenge(data.userId);
+      const { b64ChallengeNonce, b64EncryptedChallenge } = challengeResponse.data;
 
       const clearChallenge = await decryptAuthChallenge(
         data.password,
         user.Salt,
-        user.EncryptedMasterKey,
-        challengeResponse.data.b64EncryptedChallenge,
+        { nonce: user.MasterKeyNonce, ciphertext: user.EncryptedMasterKey },
+        { nonce: b64ChallengeNonce, ciphertext: b64EncryptedChallenge },
       );
 
       const verifyResponse = await authApi.verifyChallenge({
@@ -79,6 +85,7 @@ export function useSignInMutation() {
         userId: data.userId,
         password: data.password,
         salt: user.Salt,
+        masterKeyNonce: user.MasterKeyNonce,
         encryptedMasterKey: user.EncryptedMasterKey,
       };
     },

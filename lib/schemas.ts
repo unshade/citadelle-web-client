@@ -16,7 +16,9 @@ import { z } from "zod/v4";
 
 export const signUpRequestSchema = z.object({
   b64Salt: z.string().min(1),
+  b64MasterKeyNonce: z.string().min(1),
   b64EncryptedMasterKey: z.string().min(1),
+  b64ChallengeNonce: z.string().min(1),
   b64EncryptedChallenge: z.string().min(1),
   clearChallenge: z.string().min(1),
 });
@@ -28,8 +30,12 @@ export const signUpResponseSchema = z.object({
 });
 export type SignUpResponse = z.infer<typeof signUpResponseSchema>;
 
+// ChallengeResponse — nonce and ciphertext as separate fields
 export const challengeResponseSchema = z.object({
-  data: z.object({ b64EncryptedChallenge: z.string().min(1) }),
+  data: z.object({
+    b64ChallengeNonce: z.string().min(1),
+    b64EncryptedChallenge: z.string().min(1),
+  }),
   message: z.string(),
 });
 export type ChallengeResponse = z.infer<typeof challengeResponseSchema>;
@@ -46,12 +52,13 @@ export const verifyResponseSchema = z.object({
 });
 export type VerifyResponse = z.infer<typeof verifyResponseSchema>;
 
-// User as returned by the Go backend (PascalCase field names from GORM JSON)
+// User as returned by the Go backend (PascalCase field names from GORM JSON).
+// []byte fields are marshaled as base64 strings by encoding/json.
 export const userSchema = z.object({
   Id: z.string(),
   Salt: z.string(),
+  MasterKeyNonce: z.string(),
   EncryptedMasterKey: z.string(),
-  EncryptedChallenge: z.string(),
   ClearChallenge: z.string(),
 });
 export type User = z.infer<typeof userSchema>;
@@ -66,9 +73,12 @@ export type GetUserResponse = z.infer<typeof getUserResponseSchema>;
 // Server-side encrypted file/directory metadata (matches ServerNode model)
 
 export const createNodeRequestSchema = z.object({
+  b64KeyNonce: z.string(),               // empty for directories
   b64EncryptedEncryptionKey: z.string(), // empty for directories
-  b64EncryptionNonce: z.string(),        // empty for directories
+  b64ContentNonce: z.string(),           // empty for directories
+  b64NameNonce: z.string().min(1),
   b64EncryptedName: z.string().min(1),
+  b64PathNonce: z.string().min(1),
   b64EncryptedPath: z.string().min(1),
   isDirectory: z.boolean(),
   parentUuid: z.string(),
@@ -82,12 +92,16 @@ export const createNodeResponseSchema = z.object({
 });
 export type CreateNodeResponse = z.infer<typeof createNodeResponseSchema>;
 
+// Node as returned by the backend. All []byte fields arrive as base64 strings.
 export const nodeSchema = z.object({
   Id: z.string(),
   Version: z.number(),
+  NameNonce: z.string(),
   EncryptedName: z.string(),
+  KeyNonce: z.string(),
   EncryptedKey: z.string(),
-  Nonce: z.string(),
+  ContentNonce: z.string(),
+  B64PathNonce: z.string(),
   B64EncryptedPath: z.string(),
   IsDirectory: z.boolean(),
   ParentId: z.string().nullable(), // null for root-level nodes
@@ -111,18 +125,23 @@ export type MessageResponse = z.infer<typeof messageResponseSchema>;
 // Data produced during signup — sent to the server to create the user
 export const encryptedUserDataSchema = z.object({
   b64Salt: z.string().min(1),
+  b64MasterKeyNonce: z.string().min(1),
   b64EncryptedMasterKey: z.string().min(1),
+  b64ChallengeNonce: z.string().min(1),
   b64EncryptedChallenge: z.string().min(1),
   clearChallenge: z.string().min(1),
 });
 export type EncryptedUserData = z.infer<typeof encryptedUserDataSchema>;
 
-// Result of encrypting a single file before upload
+// Result of encrypting a single file before upload.
+// contentNonce is stored separately from encryptedData (the raw binary blob).
 export const encryptedFileSchema = z.object({
-  encryptedData: z.instanceof(ArrayBuffer), // raw ciphertext (AES-GCM)
-  encryptedKey: z.string(),  // base64: file key encrypted with master key
-  nonce: z.string(),         // base64: IV used for file content encryption
-  encryptedName: z.string(), // base64: filename encrypted with master key
+  encryptedData: z.instanceof(ArrayBuffer), // raw binary AES-GCM ciphertext
+  contentNonce: z.string().min(1),           // base64 IV for file content
+  encryptedKey: z.string().min(1),           // base64 ciphertext of node key
+  keyNonce: z.string().min(1),               // base64 IV for node key
+  encryptedName: z.string().min(1),          // base64 ciphertext of filename
+  nameNonce: z.string().min(1),              // base64 IV for filename
 });
 export type EncryptedFile = z.infer<typeof encryptedFileSchema>;
 
@@ -165,6 +184,7 @@ export const storedCredentialsSchema = z.object({
   userId: z.string(),
   password: z.string(),
   salt: z.string(),
+  masterKeyNonce: z.string(),
   encryptedMasterKey: z.string(),
 });
 export type StoredCredentials = z.infer<typeof storedCredentialsSchema>;

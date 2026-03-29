@@ -17,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { getStoredCredentials, clearCredentials, clearAuthToken } from "@/lib/storage";
-import { decryptName } from "@/lib/crypto";
+import { decryptString } from "@/lib/crypto";
 import { createFolderFormSchema } from "@/lib/schemas";
 import type { CreateFolderFormData, Node } from "@/lib/schemas";
 import { useDirectoryNodes, useUploadFiles, useCreateFolder, useDownloadFile, useDeleteNode } from "@/hooks/useFiles";
@@ -42,7 +42,7 @@ function useDecryptedNames(nodes: Node[]) {
       const result: Record<string, string> = {};
       for (const node of nodes) {
         try {
-          result[node.Id] = await decryptName(node.EncryptedName);
+          result[node.Id] = await decryptString({ nonce: node.NameNonce, ciphertext: node.EncryptedName });
         } catch {
           result[node.Id] = node.B64EncryptedPath;
         }

@@ -7,8 +7,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { nodeApi } from "@/lib/api";
-import { encryptFile, encryptPath, decryptFile, decryptName } from "@/lib/crypto";
-import { getStoredCredentials } from "@/lib/storage";
+import { encryptFile, encryptString, decryptFile, decryptString } from "@/lib/crypto";
 
 /** Query: list child nodes for a given directory. */
 export function useDirectoryNodes(parentUuid: string) {
@@ -41,13 +40,16 @@ export function useUploadFiles(parentUuid: string) {
         onProgress(i, { progress: 30, status: "uploading" });
 
         const path = parentUuid === "root" ? `/${file.name}` : `/path/${file.name}`;
-        const encryptedPath = await encryptPath(path);
+        const sealedPath = await encryptString(path);
 
         const createResponse = await nodeApi.createNode({
+          b64KeyNonce: encrypted.keyNonce,
           b64EncryptedEncryptionKey: encrypted.encryptedKey,
-          b64EncryptionNonce: encrypted.nonce,
+          b64ContentNonce: encrypted.contentNonce,
+          b64NameNonce: encrypted.nameNonce,
           b64EncryptedName: encrypted.encryptedName,
-          b64EncryptedPath: encryptedPath,
+          b64PathNonce: sealedPath.nonce,
+          b64EncryptedPath: sealedPath.ciphertext,
           isDirectory: false,
           parentUuid,
           version: 1,
@@ -69,23 +71,23 @@ export function useUploadFiles(parentUuid: string) {
 
 /**
  * Mutation: download an encrypted file, decrypt it client-side,
- * and trigger a browser download with the cleartext.
+ * and trigger a browser download with the cleartext filename and content.
  */
 export function useDownloadFile() {
   return useMutation({
     mutationFn: async (nodeId: string) => {
-      // Fetch encrypted blob + metadata from server
-      const { data, encryptedKey, nonce, encryptedName } =
+      const { data, keyNonce, encryptedKey, contentNonce, nameNonce, encryptedName } =
         await nodeApi.downloadNode(nodeId);
 
-      // Decrypt filename
-      const fileName = await decryptName(encryptedName);
+      const fileName = await decryptString({ nonce: nameNonce, ciphertext: encryptedName });
 
-      // Decrypt file content
       const encryptedBuffer = await data.arrayBuffer();
-      const decryptedBuffer = await decryptFile(encryptedBuffer, encryptedKey, nonce);
+      const decryptedBuffer = await decryptFile(
+        encryptedBuffer,
+        { nonce: keyNonce, ciphertext: encryptedKey },
+        contentNonce,
+      );
 
-      // Trigger browser download
       const blob = new Blob([decryptedBuffer]);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -121,18 +123,18 @@ export function useCreateFolder(parentUuid: string) {
 
   return useMutation({
     mutationFn: async (folderName: string) => {
-      const credentials = getStoredCredentials();
-      if (!credentials) throw new Error("Not authenticated");
-
       const path = parentUuid === "root" ? `/${folderName}` : `/path/${folderName}`;
-      const encryptedPath = await encryptPath(path);
-      const encryptedName = await encryptPath(folderName);
+      const sealedPath = await encryptString(path);
+      const sealedName = await encryptString(folderName);
 
       await nodeApi.createNode({
+        b64KeyNonce: "",
         b64EncryptedEncryptionKey: "",
-        b64EncryptionNonce: "",
-        b64EncryptedName: encryptedName,
-        b64EncryptedPath: encryptedPath,
+        b64ContentNonce: "",
+        b64NameNonce: sealedName.nonce,
+        b64EncryptedName: sealedName.ciphertext,
+        b64PathNonce: sealedPath.nonce,
+        b64EncryptedPath: sealedPath.ciphertext,
         isDirectory: true,
         parentUuid,
         version: 1,

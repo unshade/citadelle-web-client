@@ -3,350 +3,313 @@
  * The server NEVER receives plaintext keys, passwords, or filenames.
  *
  * Key hierarchy:
- *  password → (PBKDF2) → KEK → encrypts master key
- *  master key → encrypts file keys, filenames, paths, and the auth challenge
- *  file key  → encrypts a single file's content (AES-256-GCM)
+ *  password → (PBKDF2-SHA256) → KEK → seals master key
+ *  master key → seals per-node keys, node names, node paths, auth challenge
+ *  node key  → encrypts a single file's content (AES-256-GCM)
  *
- * Encoding: every encrypted blob is stored as IV‖ciphertext, base64-encoded.
+ * Design principle — AES-GCM with storable nonce:
+ *  Every encrypted value is TWO pieces stored in separate fields, never concatenated:
+ *    nonce:      12-byte random AES-GCM IV (base64-encoded)
+ *    ciphertext: AES-GCM output (base64-encoded)
+ *
+ *  Exception: file content blobs are uploaded as raw binary to avoid base64
+ *  overhead on large files; only their nonce goes into node metadata.
  */
 import type { EncryptedUserData, EncryptedFile } from "./schemas";
 import { getStoredCredentials } from "./storage";
 
-const SALT_LENGTH = 16;  // bytes
-const IV_LENGTH = 12;    // 96-bit IV recommended for AES-GCM
-const ITERATIONS = 100000; // PBKDF2 rounds
+const SALT_LENGTH = 16;     // bytes — PBKDF2 salt
+const IV_LENGTH = 12;       // bytes — AES-GCM IV (96-bit, NIST-recommended)
+const ITERATIONS = 100_000; // PBKDF2 rounds
 
-// ── Binary ↔ Base64 helpers ─────────────────────────────────────────────
+// ── Sealed type ─────────────────────────────────────────────────────────
 
-/** Safe extraction — avoids TS issues with Uint8Array.buffer returning ArrayBufferLike. */
-function toArrayBuffer(typed: Uint8Array): ArrayBuffer {
-  return (typed.buffer as ArrayBuffer).slice(typed.byteOffset, typed.byteOffset + typed.byteLength);
-}
+/**
+ * A sealed (encrypted) value — always two separate pieces.
+ * Callers store nonce and ciphertext in separate DB columns / API fields.
+ */
+export type Sealed = {
+  nonce: string;      // base64-encoded 12-byte AES-GCM IV
+  ciphertext: string; // base64-encoded AES-GCM ciphertext
+};
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+// ── Binary ↔ Base64 ──────────────────────────────────────────────────────
+
+/**
+ * Encode binary data as standard (non-URL-safe) base64.
+ * Exported so callers and tests can use the same encoding.
+ */
+export function b64Encode(input: Uint8Array | ArrayBuffer): string {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
+  for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
 }
 
-function uint8ToBase64(bytes: Uint8Array): string {
-  return arrayBufferToBase64(toArrayBuffer(bytes));
-}
-
-/** Decodes standard or URL-safe base64, auto-padding if needed. */
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  if (!base64 || typeof base64 !== "string") {
-    throw new Error("Invalid input: expected string");
+/**
+ * Decode standard or URL-safe base64 to a Uint8Array.
+ * Accepts missing padding and URL-safe characters (- and _).
+ * Throws a descriptive error on non-string or empty input.
+ */
+export function b64Decode(b64: string): Uint8Array<ArrayBuffer> {
+  if (typeof b64 !== "string" || b64.trim() === "") {
+    throw new Error(
+      `b64Decode: expected a non-empty base64 string, got ${JSON.stringify(b64)}`,
+    );
   }
-
-  base64 = base64.replace(/\s/g, "").trim();
-
-  // Auto-pad to a multiple of 4
-  const padLength = (4 - (base64.length % 4)) % 4;
-  base64 += "=".repeat(padLength);
-  // URL-safe → standard base64
-  base64 = base64.replace(/-/g, "+").replace(/_/g, "/");
-
-  const binary = atob(base64);
+  const normalised = b64.trim().replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalised.padEnd(
+    normalised.length + ((4 - (normalised.length % 4)) % 4),
+    "=",
+  );
+  const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
-  return toArrayBuffer(bytes);
+  return bytes;
 }
 
-// ── Key derivation & generation ─────────────────────────────────────────
+// ── AES-GCM primitives ───────────────────────────────────────────────────
 
-/** Derive a Key-Encryption-Key from password + salt using PBKDF2-SHA256. */
-async function deriveKEK(
-  password: string,
-  salt: Uint8Array,
-): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(password),
-    { name: "PBKDF2" },
-    false,
-    ["deriveBits", "deriveKey"],
-  );
-
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: salt as BufferSource,
-      iterations: ITERATIONS,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"],
-  );
-}
-
-/** Generate a random AES-256-GCM master key. */
-async function generateMasterKey(): Promise<CryptoKey> {
-  return crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"],
-  );
-}
-
-// ── AES-GCM primitives ──────────────────────────────────────────────────
-
-async function encryptWithKey(
-  data: ArrayBuffer,
+/**
+ * Encrypt data with an AES-GCM key.
+ * Returns nonce and ciphertext as separate base64 strings — never concatenated.
+ */
+export async function aesEncrypt(
+  data: BufferSource,
   key: CryptoKey,
-): Promise<{ ciphertext: ArrayBuffer; iv: Uint8Array }> {
+): Promise<Sealed> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
-    key,
-    data,
-  );
-  return { ciphertext, iv };
-}
-
-async function decryptWithKey(
-  ciphertext: ArrayBuffer,
-  iv: Uint8Array,
-  key: CryptoKey,
-): Promise<ArrayBuffer> {
-  return crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
-    key,
-    ciphertext,
-  );
-}
-
-/** Pack IV and ciphertext into a single buffer: [IV (12 bytes) | ciphertext]. */
-function combineIvAndCiphertext(
-  iv: Uint8Array,
-  ciphertext: ArrayBuffer,
-): Uint8Array {
-  const combined = new Uint8Array(iv.length + ciphertext.byteLength);
-  combined.set(iv);
-  combined.set(new Uint8Array(ciphertext), iv.length);
-  return combined;
-}
-
-/** Unpack IV and ciphertext from a combined buffer. */
-function splitIvAndCiphertext(combined: Uint8Array): {
-  iv: Uint8Array;
-  ciphertext: Uint8Array;
-} {
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data);
   return {
-    iv: combined.slice(0, IV_LENGTH),
-    ciphertext: combined.slice(IV_LENGTH),
+    nonce: b64Encode(iv),
+    ciphertext: b64Encode(ciphertext),
   };
 }
 
-// ── Master key recovery ─────────────────────────────────────────────────
-
 /**
- * Re-derive the master key from stored credentials.
- * password → KEK → decrypt(encryptedMasterKey) → CryptoKey
+ * Decrypt a Sealed value produced by aesEncrypt.
+ * Throws on wrong key, tampered ciphertext, or malformed input.
  */
-async function recoverMasterKey(
-  password: string,
-  b64Salt: string,
-  b64EncryptedMasterKey: string,
-  extractable: boolean = false,
-): Promise<CryptoKey> {
-  const saltBuffer = base64ToArrayBuffer(b64Salt);
-  const kek = await deriveKEK(password, new Uint8Array(saltBuffer));
+export async function aesDecrypt(
+  sealed: Sealed,
+  key: CryptoKey,
+): Promise<ArrayBuffer> {
+  const iv = b64Decode(sealed.nonce);
+  if (iv.length !== IV_LENGTH) {
+    throw new Error(`aesDecrypt: invalid nonce length ${iv.length}, expected ${IV_LENGTH}`);
+  }
+  const ciphertext = b64Decode(sealed.ciphertext);
+  return crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+}
 
-  const { iv, ciphertext } = splitIvAndCiphertext(
-    new Uint8Array(base64ToArrayBuffer(b64EncryptedMasterKey)),
-  );
-  const masterKeyBuffer = await decryptWithKey(toArrayBuffer(ciphertext), iv, kek);
+// ── Key derivation & generation ──────────────────────────────────────────
 
-  return crypto.subtle.importKey(
+async function deriveKEK(password: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+  const material = await crypto.subtle.importKey(
     "raw",
-    masterKeyBuffer,
+    new TextEncoder().encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveKey"],
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: ITERATIONS, hash: "SHA-256" },
+    material,
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"],
+  );
+}
+
+async function generateAesKey(extractable: boolean): Promise<CryptoKey> {
+  return crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
     extractable,
     ["encrypt", "decrypt"],
   );
 }
 
-// ── Public API ──────────────────────────────────────────────────────────
+/**
+ * Re-derive the master key from stored credentials.
+ * password → KEK → aesDecrypt(sealedMasterKey) → CryptoKey
+ * The result is NOT extractable: it only encrypts/decrypts, never exports.
+ */
+async function recoverMasterKey(
+  password: string,
+  b64Salt: string,
+  sealedMasterKey: Sealed,
+): Promise<CryptoKey> {
+  const kek = await deriveKEK(password, b64Decode(b64Salt));
+  const rawMasterKey = await aesDecrypt(sealedMasterKey, kek);
+  return crypto.subtle.importKey(
+    "raw",
+    rawMasterKey,
+    { name: "AES-GCM", length: 256 },
+    false, // not extractable: never needs to leave the browser in raw form
+    ["encrypt", "decrypt"],
+  );
+}
+
+// ── Master key cache ─────────────────────────────────────────────────────
+// PBKDF2 at 100k rounds takes ~100 ms; caching avoids re-deriving on every
+// crypto operation within the same session.
+
+let _cachedMasterKey: CryptoKey | null = null;
 
 /**
- * Generate all encrypted material needed for user signup.
- * Called once when the user creates their account.
+ * Invalidate the cached master key.
+ * Must be called on logout or whenever credentials change.
+ */
+export function invalidateMasterKeyCache(): void {
+  _cachedMasterKey = null;
+}
+
+async function getMasterKey(): Promise<CryptoKey> {
+  if (_cachedMasterKey) return _cachedMasterKey;
+
+  const creds = getStoredCredentials();
+  if (!creds) throw new Error("Not authenticated");
+
+  _cachedMasterKey = await recoverMasterKey(
+    creds.password,
+    creds.salt,
+    { nonce: creds.masterKeyNonce, ciphertext: creds.encryptedMasterKey },
+  );
+  return _cachedMasterKey;
+}
+
+// ── Public API ───────────────────────────────────────────────────────────
+
+/**
+ * Generate all encrypted material for user signup (runs once, client-side).
+ * Returns the data sent to the server to create the account; the server never
+ * sees the password or the raw master key.
  */
 export async function generateEncryptedUserData(
   password: string,
 ): Promise<EncryptedUserData> {
-  const challenge = uint8ToBase64(
-    crypto.getRandomValues(new Uint8Array(16)),
-  );
-
+  const clearChallenge = b64Encode(crypto.getRandomValues(new Uint8Array(16)));
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
   const kek = await deriveKEK(password, salt);
-  const masterKey = await generateMasterKey();
+  const masterKey = await generateAesKey(true); // extractable only here, to export it
 
-  const masterKeyBuffer = await crypto.subtle.exportKey("raw", masterKey);
-  const { ciphertext: encMasterKey, iv: mkIv } = await encryptWithKey(
-    masterKeyBuffer,
-    kek,
-  );
-
-  const { ciphertext: encChallenge, iv: chIv } = await encryptWithKey(
-    toArrayBuffer(new TextEncoder().encode(challenge)),
+  const rawMasterKey = await crypto.subtle.exportKey("raw", masterKey);
+  const sealedMasterKey = await aesEncrypt(rawMasterKey, kek);
+  const sealedChallenge = await aesEncrypt(
+    new TextEncoder().encode(clearChallenge),
     masterKey,
   );
 
   return {
-    b64Salt: uint8ToBase64(salt),
-    b64EncryptedMasterKey: uint8ToBase64(
-      combineIvAndCiphertext(mkIv, encMasterKey),
-    ),
-    b64EncryptedChallenge: uint8ToBase64(
-      combineIvAndCiphertext(chIv, encChallenge),
-    ),
-    clearChallenge: challenge,
+    b64Salt: b64Encode(salt),
+    b64MasterKeyNonce: sealedMasterKey.nonce,
+    b64EncryptedMasterKey: sealedMasterKey.ciphertext,
+    b64ChallengeNonce: sealedChallenge.nonce,
+    b64EncryptedChallenge: sealedChallenge.ciphertext,
+    clearChallenge,
   };
 }
 
 /**
  * Decrypt the auth challenge during sign-in.
- * The server sends an encrypted challenge; we decrypt it and send back the
- * cleartext to prove we hold the correct password (challenge-response auth).
+ * Proves to the server that the user holds the correct password without
+ * transmitting the password itself (zero-knowledge challenge-response).
  */
 export async function decryptAuthChallenge(
   password: string,
-  salt: string,
-  encryptedMasterKey: string,
-  encryptedChallenge: string,
+  b64Salt: string,
+  sealedMasterKey: Sealed,
+  sealedChallenge: Sealed,
 ): Promise<string> {
-  const masterKey = await recoverMasterKey(password, salt, encryptedMasterKey);
-
-  const { iv, ciphertext } = splitIvAndCiphertext(
-    new Uint8Array(base64ToArrayBuffer(encryptedChallenge)),
-  );
-  const decrypted = await decryptWithKey(toArrayBuffer(ciphertext), iv, masterKey);
-  return new TextDecoder().decode(decrypted);
+  const masterKey = await recoverMasterKey(password, b64Salt, sealedMasterKey);
+  const plaintext = await aesDecrypt(sealedChallenge, masterKey);
+  return new TextDecoder().decode(plaintext);
 }
 
 /**
  * Encrypt a file for upload.
- * Each file gets its own random AES-256 key; that key is then encrypted
- * with the master key so the server only stores ciphertext.
+ * Each file gets a unique AES-256 node key; that key is then sealed with the
+ * master key so the server only stores ciphertext.
+ *
+ * File content is encrypted with a random IV, but the ciphertext is stored
+ * as raw binary (not base64) to avoid overhead on large uploads.
+ * Only the content nonce goes into the node metadata.
  */
 export async function encryptFile(file: File): Promise<EncryptedFile> {
   const masterKey = await getMasterKey();
+  const nodeKey = await generateAesKey(true); // extractable to seal it below
 
-  const fileKey = await crypto.subtle.generateKey(
-    { name: "AES-GCM", length: 256 },
-    true,
-    ["encrypt", "decrypt"],
-  );
-
-  // Encrypt file content
-  const fileBuffer = await file.arrayBuffer();
+  // Encrypt file content — nonce stored separately from the binary blob
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
   const encryptedData = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
-    fileKey,
-    fileBuffer,
+    { name: "AES-GCM", iv },
+    nodeKey,
+    await file.arrayBuffer(),
   );
 
-  // Encrypt file key with master key
-  const rawFileKey = await crypto.subtle.exportKey("raw", fileKey);
-  const { ciphertext: encKey, iv: keyIv } = await encryptWithKey(
-    rawFileKey,
-    masterKey,
-  );
-
-  // Encrypt filename with master key
-  const { ciphertext: encName, iv: nameIv } = await encryptWithKey(
-    toArrayBuffer(new TextEncoder().encode(file.name)),
-    masterKey,
-  );
+  // Seal the node key and filename with the master key
+  const rawNodeKey = await crypto.subtle.exportKey("raw", nodeKey);
+  const sealedKey = await aesEncrypt(rawNodeKey, masterKey);
+  const sealedName = await aesEncrypt(new TextEncoder().encode(file.name), masterKey);
 
   return {
     encryptedData,
-    encryptedKey: uint8ToBase64(combineIvAndCiphertext(keyIv, encKey)),
-    nonce: uint8ToBase64(iv),
-    encryptedName: uint8ToBase64(combineIvAndCiphertext(nameIv, encName)),
+    contentNonce: b64Encode(iv),
+    encryptedKey: sealedKey.ciphertext,
+    keyNonce: sealedKey.nonce,
+    encryptedName: sealedName.ciphertext,
+    nameNonce: sealedName.nonce,
   };
 }
 
 /**
  * Decrypt a downloaded file.
- * Reverses encryptFile: master key → decrypt file key → decrypt content.
+ * master key → unseal node key → decrypt file content.
  */
 export async function decryptFile(
   encryptedData: ArrayBuffer,
-  b64EncryptedKey: string,
-  b64Nonce: string,
+  sealedKey: Sealed,
+  b64ContentNonce: string,
 ): Promise<ArrayBuffer> {
   const masterKey = await getMasterKey();
 
-  // Decrypt the per-file key with master key
-  const { iv: keyIv, ciphertext: keyCiphertext } = splitIvAndCiphertext(
-    new Uint8Array(base64ToArrayBuffer(b64EncryptedKey)),
-  );
-  const rawFileKey = await decryptWithKey(
-    toArrayBuffer(keyCiphertext),
-    keyIv,
-    masterKey,
-  );
-
-  const fileKey = await crypto.subtle.importKey(
+  const rawNodeKey = await aesDecrypt(sealedKey, masterKey);
+  const nodeKey = await crypto.subtle.importKey(
     "raw",
-    rawFileKey,
+    rawNodeKey,
     { name: "AES-GCM", length: 256 },
     false,
     ["decrypt"],
   );
 
-  // Decrypt file content with the file key
-  const nonce = new Uint8Array(base64ToArrayBuffer(b64Nonce));
-  return decryptWithKey(encryptedData, nonce, fileKey);
+  const iv = b64Decode(b64ContentNonce);
+  if (iv.length !== IV_LENGTH) {
+    throw new Error(
+      `decryptFile: invalid content nonce length ${iv.length}, expected ${IV_LENGTH}`,
+    );
+  }
+  return crypto.subtle.decrypt({ name: "AES-GCM", iv }, nodeKey, encryptedData);
 }
 
-/** Encrypt a path string with the master key (used for directory hierarchy). */
-export async function encryptPath(path: string): Promise<string> {
+/**
+ * Encrypt a node name or path with the master key.
+ * Returns a Sealed value with nonce and ciphertext stored separately.
+ * Used for every node — files, folders, names, and paths.
+ */
+export async function encryptString(text: string): Promise<Sealed> {
   const masterKey = await getMasterKey();
-
-  const { ciphertext, iv } = await encryptWithKey(
-    toArrayBuffer(new TextEncoder().encode(path)),
-    masterKey,
-  );
-
-  return uint8ToBase64(combineIvAndCiphertext(iv, ciphertext));
+  return aesEncrypt(new TextEncoder().encode(text), masterKey);
 }
 
-/** Decrypt an encrypted node name for display in the UI. */
-export async function decryptName(b64EncryptedName: string): Promise<string> {
+/**
+ * Decrypt a node name or path previously encrypted with encryptString.
+ */
+export async function decryptString(sealed: Sealed): Promise<string> {
   const masterKey = await getMasterKey();
-
-  const { iv, ciphertext } = splitIvAndCiphertext(
-    new Uint8Array(base64ToArrayBuffer(b64EncryptedName)),
-  );
-  const decrypted = await decryptWithKey(toArrayBuffer(ciphertext), iv, masterKey);
-  return new TextDecoder().decode(decrypted);
-}
-
-// ── Internal ────────────────────────────────────────────────────────────
-
-/** Recover the master key from in-memory credentials. Throws if not authenticated. */
-async function getMasterKey(): Promise<CryptoKey> {
-  const credentials = getStoredCredentials();
-  if (!credentials) throw new Error("Not authenticated");
-
-  return recoverMasterKey(
-    credentials.password,
-    credentials.salt,
-    credentials.encryptedMasterKey,
-    true,
-  );
+  const plaintext = await aesDecrypt(sealed, masterKey);
+  return new TextDecoder().decode(plaintext);
 }
