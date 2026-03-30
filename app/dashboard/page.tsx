@@ -6,7 +6,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Shield,
   FolderPlus,
   Upload,
   Loader2,
@@ -29,7 +28,6 @@ import {
   useOpenFile,
   useFavouriteNodes,
 } from "@/hooks/useFiles";
-import { DashboardHeader } from "@/components/dashboard/dashboard-header";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import type { DashboardView } from "@/components/dashboard/dashboard-sidebar";
 import { FileBrowser } from "@/components/dashboard/file-browser";
@@ -243,169 +241,169 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen arctic-bg">
-      <DashboardHeader userId={userId} onLogout={handleLogout} />
+    <div className="flex h-screen arctic-bg overflow-hidden">
+      <DashboardSidebar
+        activeView={view}
+        onViewChange={handleViewChange}
+        userId={userId}
+        onLogout={handleLogout}
+      />
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {(error || filesQuery.error || favouritesQuery.error) && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3"
-          >
-            <AlertCircle className="w-5 h-5 text-red-400" />
-            <span className="text-sm text-red-200">
-              {error || filesQuery.error?.message || favouritesQuery.error?.message}
-            </span>
-            <button
-              onClick={() => setError(null)}
-              className="ml-auto text-red-400 hover:text-red-300"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </motion.div>
-        )}
+      {/* Right panel */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
-        <div className="flex gap-6 items-start">
-          <DashboardSidebar activeView={view} onViewChange={handleViewChange} />
-
-          <div className="flex-1 min-w-0">
-            {/* Breadcrumb — only in files view */}
-            {view === "files" && (
-              <div className="flex items-center gap-2 mb-6 text-sm">
-                {pathStack.map((level, index) => (
-                  <span key={level.id} className="flex items-center gap-2">
-                    <span
-                      onClick={() => navigateToPath(index)}
-                      className={
-                        index === pathStack.length - 1
-                          ? "text-white/80"
-                          : "text-blue-200/50 cursor-pointer hover:text-blue-200/80"
-                      }
-                    >
-                      {level.name}
-                    </span>
-                    {index < pathStack.length - 1 && (
-                      <ChevronRight className="w-4 h-4 text-blue-200/30" />
-                    )}
+        {/* Top bar */}
+        <div className="shrink-0 border-b border-white/[0.05] px-6 py-3 flex items-center justify-between gap-4 backdrop-blur-sm bg-black/10">
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2 text-sm min-w-0">
+            {view === "files" ? (
+              pathStack.map((level, index) => (
+                <span key={level.id} className="flex items-center gap-2 min-w-0">
+                  <span
+                    onClick={() => navigateToPath(index)}
+                    className={
+                      index === pathStack.length - 1
+                        ? "text-white/70"
+                        : "text-white/30 cursor-pointer hover:text-white/55 transition-colors"
+                    }
+                  >
+                    {level.name}
                   </span>
-                ))}
-              </div>
-            )}
-
-            {/* Toolbar — only in files view */}
-            {view === "files" && (
-              <div className="flex items-center gap-4 mb-8">
-                <Button
-                  className="btn-ice text-white/90"
-                  disabled={isUploading || createFolderMutation.isPending}
-                  onClick={() => setIsCreateFolderOpen(true)}
-                >
-                  <FolderPlus className="w-4 h-4 mr-2" />
-                  New Folder
-                </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileSelect}
-                  disabled={isUploading}
-                />
-                <Button
-                  className="btn-ice"
-                  variant="outline"
-                  disabled={isUploading}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {isUploading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Upload className="w-4 h-4 mr-2" />
+                  {index < pathStack.length - 1 && (
+                    <ChevronRight className="w-3.5 h-3.5 text-white/20 shrink-0" />
                   )}
-                  {isUploading ? "Uploading..." : "Upload File"}
-                </Button>
-              </div>
+                </span>
+              ))
+            ) : (
+              <span className="text-white/70">Favourites</span>
             )}
-
-            <FileBrowser
-              nodes={activeNodes}
-              decryptedNames={decryptedNames}
-              isLoading={isLoadingNodes}
-              isDragging={isDragging && view === "files"}
-              isUploading={isUploading}
-              downloadingNodeId={downloadFile.variables}
-              isDownloading={downloadFile.isPending}
-              openingNodeId={openFile.variables}
-              isOpening={openFile.isPending}
-              onNavigateFolder={navigateToFolder}
-              onOpen={handleOpen}
-              onDownload={handleDownload}
-              onDelete={setNodeToDelete}
-              onDragEnter={view === "files" ? handleDragEnter : () => {}}
-              onDragLeave={view === "files" ? handleDragLeave : () => {}}
-              onDragOver={view === "files" ? handleDragOver : () => {}}
-              onDrop={view === "files" ? handleDrop : () => {}}
-            />
-
-            <AnimatePresence>
-              {uploadProgress.length > 0 && (
-                <UploadProgress
-                  items={uploadProgress}
-                  isUploading={isUploading}
-                  onClear={clearUploadProgress}
-                />
-              )}
-            </AnimatePresence>
           </div>
+
+          {/* Actions */}
+          {view === "files" && (
+            <div className="flex items-center gap-3 shrink-0">
+              <Button
+                className="btn-ice text-white/80 h-8 text-xs px-3"
+                disabled={isUploading || createFolderMutation.isPending}
+                onClick={() => setIsCreateFolderOpen(true)}
+              >
+                <FolderPlus className="w-3.5 h-3.5 mr-1.5" />
+                New Folder
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleFileSelect}
+                disabled={isUploading}
+              />
+              <Button
+                className="btn-ice h-8 text-xs px-3"
+                variant="outline"
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {isUploading ? (
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Upload className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                {isUploading ? "Uploading…" : "Upload"}
+              </Button>
+            </div>
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="mt-8 text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <Shield className="w-4 h-4 text-blue-200/40" strokeWidth={2} />
-            <span className="text-xs text-blue-200/40 tracking-wider">
-              End-to-End Encrypted
-            </span>
-          </div>
-          <p className="text-[10px] text-blue-200/20 tracking-wider">
-            All files are encrypted on your device before being uploaded
-          </p>
-        </div>
-
+        {/* Error banner */}
         <AnimatePresence>
-          {preview && (
-            <FilePreviewModal
-              objectUrl={preview.objectUrl}
-              filename={preview.fileName}
-              onClose={handleClosePreview}
-            />
+          {(error || filesQuery.error || favouritesQuery.error) && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className="shrink-0 mx-6 mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3"
+            >
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <span className="text-sm text-red-200 flex-1">
+                {error || filesQuery.error?.message || favouritesQuery.error?.message}
+              </span>
+              <button
+                onClick={() => setError(null)}
+                className="text-red-400/60 hover:text-red-300 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
           )}
         </AnimatePresence>
 
-        <AnimatePresence>
-          {isCreateFolderOpen && (
-            <CreateFolderModal
-              form={folderForm}
-              isPending={createFolderMutation.isPending}
-              onSubmit={handleCreateFolder}
-              onClose={() => setIsCreateFolderOpen(false)}
-            />
-          )}
-        </AnimatePresence>
+        {/* Scrollable content */}
+        <main className="flex-1 overflow-y-auto px-6 py-6">
+          <FileBrowser
+            nodes={activeNodes}
+            decryptedNames={decryptedNames}
+            isLoading={isLoadingNodes}
+            isDragging={isDragging && view === "files"}
+            isUploading={isUploading}
+            downloadingNodeId={downloadFile.variables}
+            isDownloading={downloadFile.isPending}
+            openingNodeId={openFile.variables}
+            isOpening={openFile.isPending}
+            onNavigateFolder={navigateToFolder}
+            onOpen={handleOpen}
+            onDownload={handleDownload}
+            onDelete={setNodeToDelete}
+            onDragEnter={view === "files" ? handleDragEnter : () => {}}
+            onDragLeave={view === "files" ? handleDragLeave : () => {}}
+            onDragOver={view === "files" ? handleDragOver : () => {}}
+            onDrop={view === "files" ? handleDrop : () => {}}
+          />
 
-        <AnimatePresence>
-          {nodeToDelete && (
-            <DeleteConfirmModal
-              node={nodeToDelete}
-              decryptedName={decryptedNames[nodeToDelete.Id] ?? "this item"}
-              isPending={deleteNode.isPending}
-              onConfirm={handleDeleteConfirm}
-              onClose={() => setNodeToDelete(null)}
-            />
-          )}
-        </AnimatePresence>
-      </main>
+          <AnimatePresence>
+            {uploadProgress.length > 0 && (
+              <UploadProgress
+                items={uploadProgress}
+                isUploading={isUploading}
+                onClear={clearUploadProgress}
+              />
+            )}
+          </AnimatePresence>
+        </main>
+      </div>
+
+      <AnimatePresence>
+        {preview && (
+          <FilePreviewModal
+            objectUrl={preview.objectUrl}
+            filename={preview.fileName}
+            onClose={handleClosePreview}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isCreateFolderOpen && (
+          <CreateFolderModal
+            form={folderForm}
+            isPending={createFolderMutation.isPending}
+            onSubmit={handleCreateFolder}
+            onClose={() => setIsCreateFolderOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {nodeToDelete && (
+          <DeleteConfirmModal
+            node={nodeToDelete}
+            decryptedName={decryptedNames[nodeToDelete.Id] ?? "this item"}
+            isPending={deleteNode.isPending}
+            onConfirm={handleDeleteConfirm}
+            onClose={() => setNodeToDelete(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
