@@ -128,6 +128,27 @@ export function useOpenFile() {
   });
 }
 
+/** Query: list all nodes marked as favourite for the current user. */
+export function useFavouriteNodes() {
+  return useQuery({
+    queryKey: ["favourites"],
+    queryFn: () => nodeApi.getFavourites(),
+  });
+}
+
+/** Mutation: set or unset a node as favourite, then refresh listings. */
+export function useToggleFavourite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ nodeId, isFavourite }: { nodeId: string; isFavourite: boolean }) =>
+      nodeApi.setFavourite(nodeId, isFavourite),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["nodes"] });
+      queryClient.invalidateQueries({ queryKey: ["favourites"] });
+    },
+  });
+}
+
 /** Mutation: delete a node (file or directory, recursive), then invalidate the listing. */
 export function useDeleteNode(parentUuid: string) {
   const queryClient = useQueryClient();

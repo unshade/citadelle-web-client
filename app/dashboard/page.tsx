@@ -20,8 +20,18 @@ import { getStoredCredentials, clearCredentials, clearAuthToken } from "@/lib/st
 import { decryptString } from "@/lib/crypto";
 import { createFolderFormSchema } from "@/lib/schemas";
 import type { CreateFolderFormData, Node } from "@/lib/schemas";
-import { useDirectoryNodes, useUploadFiles, useCreateFolder, useDownloadFile, useDeleteNode, useOpenFile } from "@/hooks/useFiles";
+import {
+  useDirectoryNodes,
+  useUploadFiles,
+  useCreateFolder,
+  useDownloadFile,
+  useDeleteNode,
+  useOpenFile,
+  useFavouriteNodes,
+} from "@/hooks/useFiles";
 import { DashboardHeader } from "@/components/dashboard/dashboard-header";
+import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
+import type { DashboardView } from "@/components/dashboard/dashboard-sidebar";
 import { FileBrowser } from "@/components/dashboard/file-browser";
 import { UploadProgress } from "@/components/dashboard/upload-progress";
 import { CreateFolderModal } from "@/components/dashboard/create-folder-modal";
@@ -61,6 +71,7 @@ function useDecryptedNames(nodes: Node[]) {
 export default function DashboardPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<DashboardView>("files");
   const [pathStack, setPathStack] = useState<PathLevel[]>([
     { id: "root", name: "Home" },
   ]);
@@ -73,9 +84,15 @@ export default function DashboardPage() {
 
   const currentFolderId = pathStack[pathStack.length - 1]?.id || "root";
 
-  const nodesQuery = useDirectoryNodes(currentFolderId);
-  const nodes = nodesQuery.data ?? [];
-  const decryptedNames = useDecryptedNames(nodes);
+  const filesQuery = useDirectoryNodes(currentFolderId);
+  const favouritesQuery = useFavouriteNodes();
+
+  const activeNodes = view === "files"
+    ? (filesQuery.data ?? [])
+    : (favouritesQuery.data ?? []);
+  const isLoadingNodes = view === "files" ? filesQuery.isLoading : favouritesQuery.isLoading;
+
+  const decryptedNames = useDecryptedNames(activeNodes);
 
   const { uploadFiles, isUploading, uploadProgress, clearUploadProgress } =
     useUploadFiles(currentFolderId);
@@ -101,12 +118,18 @@ export default function DashboardPage() {
     });
   }, [router]);
 
-  const navigateToFolder = (folderId: string, folderName: string) => {
+  const navigateToFolder = useCallback((folderId: string, folderName: string) => {
+    // Always switch to files view when navigating into a folder
+    setView("files");
     setPathStack((prev) => [...prev, { id: folderId, name: folderName }]);
-  };
+  }, []);
 
   const navigateToPath = (index: number) => {
     setPathStack((prev) => prev.slice(0, index + 1));
+  };
+
+  const handleViewChange = (next: DashboardView) => {
+    setView(next);
   };
 
   const handleLogout = () => {
@@ -144,8 +167,7 @@ export default function DashboardPage() {
         setError(null);
         await uploadFiles(files);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Upload failed";
-        setError(message);
+        setError(err instanceof Error ? err.message : "Upload failed");
       }
     },
     [uploadFiles],
@@ -159,8 +181,7 @@ export default function DashboardPage() {
       setError(null);
       await uploadFiles(files);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Upload failed";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Upload failed");
     }
 
     e.target.value = "";
@@ -173,9 +194,7 @@ export default function DashboardPage() {
       folderForm.reset();
       setIsCreateFolderOpen(false);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to create folder";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to create folder");
     }
   };
 
@@ -228,7 +247,7 @@ export default function DashboardPage() {
       <DashboardHeader userId={userId} onLogout={handleLogout} />
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {(error || nodesQuery.error) && (
+        {(error || filesQuery.error || favouritesQuery.error) && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -236,7 +255,7 @@ export default function DashboardPage() {
           >
             <AlertCircle className="w-5 h-5 text-red-400" />
             <span className="text-sm text-red-200">
-              {error || nodesQuery.error?.message}
+              {error || filesQuery.error?.message || favouritesQuery.error?.message}
             </span>
             <button
               onClick={() => setError(null)}
@@ -247,89 +266,99 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-2 mb-6 text-sm">
-          {pathStack.map((level, index) => (
-            <span key={level.id} className="flex items-center gap-2">
-              <span
-                onClick={() => navigateToPath(index)}
-                className={
-                  index === pathStack.length - 1
-                    ? "text-white/80"
-                    : "text-blue-200/50 cursor-pointer hover:text-blue-200/80"
-                }
-              >
-                {level.name}
-              </span>
-              {index < pathStack.length - 1 && (
-                <ChevronRight className="w-4 h-4 text-blue-200/30" />
-              )}
-            </span>
-          ))}
-        </div>
+        <div className="flex gap-6 items-start">
+          <DashboardSidebar activeView={view} onViewChange={handleViewChange} />
 
-        {/* Toolbar */}
-        <div className="flex items-center gap-4 mb-8">
-          <Button
-            className="btn-ice text-white/90"
-            disabled={isUploading || createFolderMutation.isPending}
-            onClick={() => setIsCreateFolderOpen(true)}
-          >
-            <FolderPlus className="w-4 h-4 mr-2" />
-            New Folder
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFileSelect}
-            disabled={isUploading}
-          />
-          <Button
-            className="btn-ice"
-            variant="outline"
-            disabled={isUploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {isUploading ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Upload className="w-4 h-4 mr-2" />
+          <div className="flex-1 min-w-0">
+            {/* Breadcrumb — only in files view */}
+            {view === "files" && (
+              <div className="flex items-center gap-2 mb-6 text-sm">
+                {pathStack.map((level, index) => (
+                  <span key={level.id} className="flex items-center gap-2">
+                    <span
+                      onClick={() => navigateToPath(index)}
+                      className={
+                        index === pathStack.length - 1
+                          ? "text-white/80"
+                          : "text-blue-200/50 cursor-pointer hover:text-blue-200/80"
+                      }
+                    >
+                      {level.name}
+                    </span>
+                    {index < pathStack.length - 1 && (
+                      <ChevronRight className="w-4 h-4 text-blue-200/30" />
+                    )}
+                  </span>
+                ))}
+              </div>
             )}
-            {isUploading ? "Uploading..." : "Upload File"}
-          </Button>
-        </div>
 
-        <FileBrowser
-          nodes={nodes}
-          decryptedNames={decryptedNames}
-          isLoading={nodesQuery.isLoading}
-          isDragging={isDragging}
-          isUploading={isUploading}
-          downloadingNodeId={downloadFile.variables}
-          isDownloading={downloadFile.isPending}
-          openingNodeId={openFile.variables}
-          isOpening={openFile.isPending}
-          onNavigateFolder={navigateToFolder}
-          onOpen={handleOpen}
-          onDownload={handleDownload}
-          onDelete={setNodeToDelete}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-        />
+            {/* Toolbar — only in files view */}
+            {view === "files" && (
+              <div className="flex items-center gap-4 mb-8">
+                <Button
+                  className="btn-ice text-white/90"
+                  disabled={isUploading || createFolderMutation.isPending}
+                  onClick={() => setIsCreateFolderOpen(true)}
+                >
+                  <FolderPlus className="w-4 h-4 mr-2" />
+                  New Folder
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileSelect}
+                  disabled={isUploading}
+                />
+                <Button
+                  className="btn-ice"
+                  variant="outline"
+                  disabled={isUploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {isUploading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4 mr-2" />
+                  )}
+                  {isUploading ? "Uploading..." : "Upload File"}
+                </Button>
+              </div>
+            )}
 
-        <AnimatePresence>
-          {uploadProgress.length > 0 && (
-            <UploadProgress
-              items={uploadProgress}
+            <FileBrowser
+              nodes={activeNodes}
+              decryptedNames={decryptedNames}
+              isLoading={isLoadingNodes}
+              isDragging={isDragging && view === "files"}
               isUploading={isUploading}
-              onClear={clearUploadProgress}
+              downloadingNodeId={downloadFile.variables}
+              isDownloading={downloadFile.isPending}
+              openingNodeId={openFile.variables}
+              isOpening={openFile.isPending}
+              onNavigateFolder={navigateToFolder}
+              onOpen={handleOpen}
+              onDownload={handleDownload}
+              onDelete={setNodeToDelete}
+              onDragEnter={view === "files" ? handleDragEnter : () => {}}
+              onDragLeave={view === "files" ? handleDragLeave : () => {}}
+              onDragOver={view === "files" ? handleDragOver : () => {}}
+              onDrop={view === "files" ? handleDrop : () => {}}
             />
-          )}
-        </AnimatePresence>
+
+            <AnimatePresence>
+              {uploadProgress.length > 0 && (
+                <UploadProgress
+                  items={uploadProgress}
+                  isUploading={isUploading}
+                  onClear={clearUploadProgress}
+                />
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
 
         {/* Footer */}
         <div className="mt-8 text-center">

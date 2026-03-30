@@ -30,6 +30,7 @@ import type {
   CreateNodeResponse,
   IndexNodesResponse,
   MessageResponse,
+  Node,
 } from "./schemas";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
@@ -158,6 +159,16 @@ export const nodeApi = {
   async deleteNode(nodeUuid: string): Promise<MessageResponse> {
     const response = await api.delete(`/nodes/${nodeUuid}`);
     return messageResponseSchema.parse(response.data);
+  },
+
+  async setFavourite(nodeUuid: string, isFavourite: boolean): Promise<MessageResponse> {
+    const response = await api.put(`/nodes/${nodeUuid}/favourite`, { isFavourite });
+    return messageResponseSchema.parse(response.data);
+  },
+
+  async getFavourites(): Promise<Node[]> {
+    const response = await api.get("/nodes/favourites");
+    return indexNodesResponseSchema.parse(response.data).data.nodes;
   },
 };
 
