@@ -242,19 +242,14 @@ describe("session-dependent crypto (encryptString, decryptString, encryptFile, d
 
       // Verify structure: all fields present and separate
       expect(enc.encryptedData).toBeInstanceOf(ArrayBuffer);
-      for (const field of [enc.contentNonce, enc.encryptedKey, enc.keyNonce, enc.encryptedName, enc.nameNonce]) {
+      for (const field of [enc.contentNonce, enc.encryptedName, enc.nameNonce]) {
         expect(typeof field).toBe("string");
         expect(field.length).toBeGreaterThan(0);
       }
-      // Nonces must differ from their paired ciphertexts
-      expect(enc.keyNonce).not.toBe(enc.encryptedKey);
+      // Nonce must differ from its paired ciphertext
       expect(enc.nameNonce).not.toBe(enc.encryptedName);
 
-      const decrypted = await decryptFile(
-        enc.encryptedData,
-        { nonce: enc.keyNonce, ciphertext: enc.encryptedKey },
-        enc.contentNonce,
-      );
+      const decrypted = await decryptFile(enc.encryptedData, enc.contentNonce);
       expect(new TextDecoder().decode(decrypted)).toBe(content);
     });
 
@@ -272,16 +267,7 @@ describe("session-dependent crypto (encryptString, decryptString, encryptFile, d
       const tampered = enc.encryptedData.slice(0);
       new Uint8Array(tampered)[20] ^= 0xff;
       await expect(
-        decryptFile(tampered, { nonce: enc.keyNonce, ciphertext: enc.encryptedKey }, enc.contentNonce),
-      ).rejects.toThrow();
-    });
-
-    it("rejects decryption with a tampered node key", async () => {
-      const file = new File(["data"], "file.txt");
-      const enc = await encryptFile(file);
-      const badKey = b64Encode(new Uint8Array(32).fill(0xab)); // wrong key bytes
-      await expect(
-        decryptFile(enc.encryptedData, { nonce: enc.keyNonce, ciphertext: badKey }, enc.contentNonce),
+        decryptFile(tampered, enc.contentNonce),
       ).rejects.toThrow();
     });
 
@@ -290,7 +276,6 @@ describe("session-dependent crypto (encryptString, decryptString, encryptFile, d
       const a = await encryptFile(file);
       const b = await encryptFile(file);
       expect(a.contentNonce).not.toBe(b.contentNonce);
-      expect(a.keyNonce).not.toBe(b.keyNonce);
     });
   });
 });

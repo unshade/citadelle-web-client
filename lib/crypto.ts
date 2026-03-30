@@ -4,8 +4,7 @@
  *
  * Key hierarchy:
  *  password → (PBKDF2-SHA256) → KEK → seals master key
- *  master key → seals per-node keys, node names, node paths, auth challenge
- *  node key  → encrypts a single file's content (AES-256-GCM)
+ *  master key → encrypts file content, node names, node paths, auth challenge
  *
  * Design principle — AES-GCM with storable nonce:
  *  Every encrypted value is TWO pieces stored in separate fields, never concatenated:
@@ -232,35 +231,27 @@ export async function decryptAuthChallenge(
 
 /**
  * Encrypt a file for upload.
- * Each file gets a unique AES-256 node key; that key is then sealed with the
- * master key so the server only stores ciphertext.
- *
- * File content is encrypted with a random IV, but the ciphertext is stored
- * as raw binary (not base64) to avoid overhead on large uploads.
- * Only the content nonce goes into the node metadata.
+ * File content is encrypted directly with the master key using a random IV.
+ * The ciphertext is stored as raw binary (not base64) to avoid overhead on
+ * large uploads. Only the content nonce goes into the node metadata.
  */
 export async function encryptFile(file: File): Promise<EncryptedFile> {
   const masterKey = await getMasterKey();
-  const nodeKey = await generateAesKey(true); // extractable to seal it below
 
-  // Encrypt file content — nonce stored separately from the binary blob
+  // Encrypt file content with the master key — nonce stored separately from the binary blob
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
   const encryptedData = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
-    nodeKey,
+    masterKey,
     await file.arrayBuffer(),
   );
 
-  // Seal the node key and filename with the master key
-  const rawNodeKey = await crypto.subtle.exportKey("raw", nodeKey);
-  const sealedKey = await aesEncrypt(rawNodeKey, masterKey);
+  // Seal the filename with the master key
   const sealedName = await aesEncrypt(new TextEncoder().encode(file.name), masterKey);
 
   return {
     encryptedData,
     contentNonce: b64Encode(iv),
-    encryptedKey: sealedKey.ciphertext,
-    keyNonce: sealedKey.nonce,
     encryptedName: sealedName.ciphertext,
     nameNonce: sealedName.nonce,
   };
@@ -268,23 +259,13 @@ export async function encryptFile(file: File): Promise<EncryptedFile> {
 
 /**
  * Decrypt a downloaded file.
- * master key → unseal node key → decrypt file content.
+ * master key → decrypt file content directly.
  */
 export async function decryptFile(
   encryptedData: ArrayBuffer,
-  sealedKey: Sealed,
   b64ContentNonce: string,
 ): Promise<ArrayBuffer> {
   const masterKey = await getMasterKey();
-
-  const rawNodeKey = await aesDecrypt(sealedKey, masterKey);
-  const nodeKey = await crypto.subtle.importKey(
-    "raw",
-    rawNodeKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["decrypt"],
-  );
 
   const iv = b64Decode(b64ContentNonce);
   if (iv.length !== IV_LENGTH) {
@@ -292,7 +273,7 @@ export async function decryptFile(
       `decryptFile: invalid content nonce length ${iv.length}, expected ${IV_LENGTH}`,
     );
   }
-  return crypto.subtle.decrypt({ name: "AES-GCM", iv }, nodeKey, encryptedData);
+  return crypto.subtle.decrypt({ name: "AES-GCM", iv }, masterKey, encryptedData);
 }
 
 /**
