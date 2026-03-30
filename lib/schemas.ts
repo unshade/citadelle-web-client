@@ -73,8 +73,6 @@ export type GetUserResponse = z.infer<typeof getUserResponseSchema>;
 // Server-side encrypted file/directory metadata (matches ServerNode model)
 
 export const createNodeRequestSchema = z.object({
-  b64KeyNonce: z.string(),               // empty for directories
-  b64EncryptedEncryptionKey: z.string(), // empty for directories
   b64ContentNonce: z.string(),           // empty for directories
   b64NameNonce: z.string().min(1),
   b64EncryptedName: z.string().min(1),
@@ -98,8 +96,6 @@ export const nodeSchema = z.object({
   Version: z.number(),
   NameNonce: z.string(),
   EncryptedName: z.string(),
-  KeyNonce: z.string(),
-  EncryptedKey: z.string(),
   ContentNonce: z.string(),
   B64PathNonce: z.string(),
   B64EncryptedPath: z.string(),
@@ -139,8 +135,6 @@ export type EncryptedUserData = z.infer<typeof encryptedUserDataSchema>;
 export const encryptedFileSchema = z.object({
   encryptedData: z.instanceof(ArrayBuffer), // raw binary AES-GCM ciphertext
   contentNonce: z.string().min(1),           // base64 IV for file content
-  encryptedKey: z.string().min(1),           // base64 ciphertext of node key
-  keyNonce: z.string().min(1),               // base64 IV for node key
   encryptedName: z.string().min(1),          // base64 ciphertext of filename
   nameNonce: z.string().min(1),              // base64 IV for filename
 });

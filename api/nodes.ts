@@ -43,8 +43,6 @@ export function useUploadFiles(parentUuid: string) {
         const sealedPath = await encryptString(path);
 
         const createResponse = await nodeApi.createNode({
-          b64KeyNonce: encrypted.keyNonce,
-          b64EncryptedEncryptionKey: encrypted.encryptedKey,
           b64ContentNonce: encrypted.contentNonce,
           b64NameNonce: encrypted.nameNonce,
           b64EncryptedName: encrypted.encryptedName,
@@ -76,7 +74,7 @@ export function useUploadFiles(parentUuid: string) {
 export function useDownloadFile() {
   return useMutation({
     mutationFn: async (nodeId: string) => {
-      const { data, keyNonce, encryptedKey, contentNonce, nameNonce, encryptedName } =
+      const { data, contentNonce, nameNonce, encryptedName } =
         await nodeApi.downloadNode(nodeId);
 
       const fileName = await decryptString({ nonce: nameNonce, ciphertext: encryptedName });
@@ -84,7 +82,6 @@ export function useDownloadFile() {
       const encryptedBuffer = await data.arrayBuffer();
       const decryptedBuffer = await decryptFile(
         encryptedBuffer,
-        { nonce: keyNonce, ciphertext: encryptedKey },
         contentNonce,
       );
 
@@ -111,14 +108,13 @@ export function useDownloadFile() {
 export function useOpenFile() {
   return useMutation({
     mutationFn: async (nodeId: string): Promise<{ objectUrl: string; fileName: string }> => {
-      const { data, keyNonce, encryptedKey, contentNonce, nameNonce, encryptedName } =
+      const { data, contentNonce, nameNonce, encryptedName } =
         await nodeApi.downloadNode(nodeId);
 
       const fileName = await decryptString({ nonce: nameNonce, ciphertext: encryptedName });
       const encryptedBuffer = await data.arrayBuffer();
       const decryptedBuffer = await decryptFile(
         encryptedBuffer,
-        { nonce: keyNonce, ciphertext: encryptedKey },
         contentNonce,
       );
 
@@ -174,8 +170,6 @@ export function useCreateFolder(parentUuid: string) {
       const sealedName = await encryptString(folderName);
 
       await nodeApi.createNode({
-        b64KeyNonce: "",
-        b64EncryptedEncryptionKey: "",
         b64ContentNonce: "",
         b64NameNonce: sealedName.nonce,
         b64EncryptedName: sealedName.ciphertext,

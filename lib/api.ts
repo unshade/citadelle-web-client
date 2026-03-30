@@ -87,10 +87,7 @@ export const authApi = {
 
 export type DownloadNodeResult = {
   data: Blob;
-  // Sealed node key — nonce and ciphertext in separate fields
-  keyNonce: string;
-  encryptedKey: string;
-  // Content nonce for the raw binary blob
+  // Content nonce for the raw binary blob (encrypted with master key)
   contentNonce: string;
   // Sealed filename — nonce and ciphertext in separate fields
   nameNonce: string;
@@ -125,15 +122,11 @@ export const nodeApi = {
       headers: { Authorization: `Bearer ${getAuthToken()}` },
     });
 
-    const keyNonce = response.headers["x-key-nonce"];
-    const encryptedKey = response.headers["x-encrypted-key"];
     const contentNonce = response.headers["x-content-nonce"];
     const nameNonce = response.headers["x-name-nonce"];
     const encryptedName = response.headers["x-encrypted-name"];
 
     const missing = [
-      !keyNonce && "X-Key-Nonce",
-      !encryptedKey && "X-Encrypted-Key",
       !contentNonce && "X-Content-Nonce",
       !nameNonce && "X-Name-Nonce",
       !encryptedName && "X-Encrypted-Name",
@@ -148,8 +141,6 @@ export const nodeApi = {
 
     return {
       data: response.data,
-      keyNonce: keyNonce as string,
-      encryptedKey: encryptedKey as string,
       contentNonce: contentNonce as string,
       nameNonce: nameNonce as string,
       encryptedName: encryptedName as string,
