@@ -4,6 +4,7 @@ import {
   File,
   Download,
   Eye,
+  Star,
   Trash2,
   Upload,
   Loader2,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import type { Node } from "@/lib/schemas";
 import { canPreview } from "@/lib/previewers";
+import { useToggleFavourite } from "@/hooks/useFiles";
 
 type FileBrowserProps = {
   nodes: Node[];
@@ -31,6 +33,27 @@ type FileBrowserProps = {
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
 };
+
+function StarButton({ node }: { node: Node }) {
+  const toggle = useToggleFavourite();
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        toggle.mutate({ nodeId: node.Id, isFavourite: !node.IsFavourite });
+      }}
+      className={`absolute top-2 left-2 z-10 p-1.5 rounded-md transition-all ${
+        node.IsFavourite
+          ? "text-yellow-300/70 opacity-100"
+          : "text-yellow-300/0 group-hover:text-yellow-300/50 hover:!text-yellow-300"
+      }`}
+      title={node.IsFavourite ? "Remove from starred" : "Add to starred"}
+    >
+      <Star className={`w-3.5 h-3.5 ${node.IsFavourite ? "fill-current" : ""}`} />
+    </button>
+  );
+}
 
 export function FileBrowser({
   nodes,
@@ -97,6 +120,7 @@ export function FileBrowser({
                   isBusy ? "opacity-60 pointer-events-none" : ""
                 }`}
               >
+                <StarButton node={node} />
                 <button
                   type="button"
                   onClick={() => onDelete(node)}

@@ -104,6 +104,7 @@ export const nodeSchema = z.object({
   B64PathNonce: z.string(),
   B64EncryptedPath: z.string(),
   IsDirectory: z.boolean(),
+  IsFavourite: z.boolean(),
   ParentId: z.string().nullable(), // null for root-level nodes
 });
 export type Node = z.infer<typeof nodeSchema>;

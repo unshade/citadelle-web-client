@@ -60,5 +60,5 @@ export function useUploadFiles(parentUuid: string) {
   };
 }
 
-export { useDirectoryNodes, useCreateFolder, useDownloadFile, useDeleteNode, useOpenFile } from "@/api/nodes";
+export { useDirectoryNodes, useCreateFolder, useDownloadFile, useDeleteNode, useOpenFile, useFavouriteNodes, useToggleFavourite } from "@/api/nodes";
 export type { UploadProgress, Node };
