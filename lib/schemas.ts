@@ -111,6 +111,15 @@ export const indexNodesResponseSchema = z.object({
 });
 export type IndexNodesResponse = z.infer<typeof indexNodesResponseSchema>;
 
+export const paginatedNodesResponseSchema = z.object({
+  data: z.array(nodeSchema),
+  message: z.string(),
+  page: z.number(),
+  perPage: z.number(),
+  total: z.number(),
+});
+export type PaginatedNodesResponse = z.infer<typeof paginatedNodesResponseSchema>;
+
 export const messageResponseSchema = z.object({
   message: z.string(),
 });

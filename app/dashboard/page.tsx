@@ -29,6 +29,7 @@ import {
   useFavouriteNodes,
 } from "@/hooks/useFiles";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
+import { Pagination } from "@/components/dashboard/pagination";
 import type { DashboardView } from "@/components/dashboard/dashboard-sidebar";
 import { FileBrowser } from "@/components/dashboard/file-browser";
 import { UploadProgress } from "@/components/dashboard/upload-progress";
@@ -73,6 +74,9 @@ export default function DashboardPage() {
   const [pathStack, setPathStack] = useState<PathLevel[]>([
     { id: "root", name: "Home" },
   ]);
+  const [filesPage, setFilesPage] = useState(1);
+  const [favouritesPage, setFavouritesPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
   const [userId, setUserId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -82,13 +86,29 @@ export default function DashboardPage() {
 
   const currentFolderId = pathStack[pathStack.length - 1]?.id || "root";
 
-  const filesQuery = useDirectoryNodes(currentFolderId);
-  const favouritesQuery = useFavouriteNodes();
+  const filesQuery = useDirectoryNodes(currentFolderId, filesPage, perPage);
+  const favouritesQuery = useFavouriteNodes(favouritesPage, perPage);
 
   const activeNodes = view === "files"
-    ? (filesQuery.data ?? [])
-    : (favouritesQuery.data ?? []);
+    ? (filesQuery.data?.data ?? [])
+    : (favouritesQuery.data?.data ?? []);
   const isLoadingNodes = view === "files" ? filesQuery.isLoading : favouritesQuery.isLoading;
+
+  const activePage = view === "files" ? filesPage : favouritesPage;
+  const activeTotal = view === "files"
+    ? (filesQuery.data?.total ?? 0)
+    : (favouritesQuery.data?.total ?? 0);
+
+  const handlePageChange = (next: number) => {
+    if (view === "files") setFilesPage(next);
+    else setFavouritesPage(next);
+  };
+
+  const handlePerPageChange = (next: number) => {
+    setPerPage(next);
+    setFilesPage(1);
+    setFavouritesPage(1);
+  };
 
   const decryptedNames = useDecryptedNames(activeNodes);
 
@@ -117,13 +137,14 @@ export default function DashboardPage() {
   }, [router]);
 
   const navigateToFolder = useCallback((folderId: string, folderName: string) => {
-    // Always switch to files view when navigating into a folder
     setView("files");
     setPathStack((prev) => [...prev, { id: folderId, name: folderName }]);
+    setFilesPage(1);
   }, []);
 
   const navigateToPath = (index: number) => {
     setPathStack((prev) => prev.slice(0, index + 1));
+    setFilesPage(1);
   };
 
   const handleViewChange = (next: DashboardView) => {
@@ -369,6 +390,14 @@ export default function DashboardPage() {
               />
             )}
           </AnimatePresence>
+
+          <Pagination
+            page={activePage}
+            perPage={perPage}
+            total={activeTotal}
+            onPageChange={handlePageChange}
+            onPerPageChange={handlePerPageChange}
+          />
         </main>
       </div>
 
