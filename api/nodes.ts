@@ -9,14 +9,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { nodeApi } from "@/lib/api";
 import { encryptFile, encryptString, decryptFile, decryptString } from "@/lib/crypto";
 
-/** Query: list child nodes for a given directory. */
-export function useDirectoryNodes(parentUuid: string) {
+/** Query: list child nodes for a given directory, paginated. */
+export function useDirectoryNodes(parentUuid: string, page: number, perPage: number) {
   return useQuery({
-    queryKey: ["nodes", parentUuid],
-    queryFn: async () => {
-      const response = await nodeApi.indexDirectory(parentUuid);
-      return response.data.nodes;
-    },
+    queryKey: ["nodes", parentUuid, page, perPage],
+    queryFn: () => nodeApi.indexDirectory(parentUuid, page, perPage),
   });
 }
 
@@ -124,11 +121,11 @@ export function useOpenFile() {
   });
 }
 
-/** Query: list all nodes marked as favourite for the current user. */
-export function useFavouriteNodes() {
+/** Query: list all nodes marked as favourite for the current user, paginated. */
+export function useFavouriteNodes(page: number, perPage: number) {
   return useQuery({
-    queryKey: ["favourites"],
-    queryFn: () => nodeApi.getFavourites(),
+    queryKey: ["favourites", page, perPage],
+    queryFn: () => nodeApi.getFavourites(page, perPage),
   });
 }
 

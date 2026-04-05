@@ -16,7 +16,7 @@ import {
   verifyResponseSchema,
   getUserResponseSchema,
   createNodeResponseSchema,
-  indexNodesResponseSchema,
+  paginatedNodesResponseSchema,
   messageResponseSchema,
 } from "./schemas";
 import type {
@@ -28,9 +28,8 @@ import type {
   GetUserResponse,
   CreateNodeRequest,
   CreateNodeResponse,
-  IndexNodesResponse,
+  PaginatedNodesResponse,
   MessageResponse,
-  Node,
 } from "./schemas";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
@@ -109,9 +108,9 @@ export const nodeApi = {
     return messageResponseSchema.parse(response.data);
   },
 
-  async indexDirectory(nodeUuid: string): Promise<IndexNodesResponse> {
-    const response = await api.get(`/nodes/${nodeUuid}`);
-    return indexNodesResponseSchema.parse(response.data);
+  async indexDirectory(nodeUuid: string, page = 1, perPage = 50): Promise<PaginatedNodesResponse> {
+    const response = await api.get(`/nodes/${nodeUuid}`, { params: { page, perPage } });
+    return paginatedNodesResponseSchema.parse(response.data);
   },
 
   async downloadNode(nodeUuid: string): Promise<DownloadNodeResult> {
@@ -157,9 +156,9 @@ export const nodeApi = {
     return messageResponseSchema.parse(response.data);
   },
 
-  async getFavourites(): Promise<Node[]> {
-    const response = await api.get("/nodes/favourites");
-    return indexNodesResponseSchema.parse(response.data).data.nodes;
+  async getFavourites(page = 1, perPage = 50): Promise<PaginatedNodesResponse> {
+    const response = await api.get("/nodes/favourites", { params: { page, perPage } });
+    return paginatedNodesResponseSchema.parse(response.data);
   },
 };
 
